@@ -1,0 +1,683 @@
+name: Build PitchStudio Independent Android APK
+
+on:
+  push:
+    branches:
+      - staging/pitchstudio-1109
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Recriar projeto Pitch Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .pitchstudio/part01.b64               .pitchstudio/part02.b64               .pitchstudio/part03.b64               .pitchstudio/part04.b64               .pitchstudio/part05.b64               .pitchstudio/part06.b64 > "$RUNNER_TEMP/PitchStudioAndroid.zip.b64"
+          test "$(wc -c < "$RUNNER_TEMP/PitchStudioAndroid.zip.b64")" -eq 39716
+          base64 --decode "$RUNNER_TEMP/PitchStudioAndroid.zip.b64" > "$RUNNER_TEMP/PitchStudioAndroid.zip"
+          unzip -t "$RUNNER_TEMP/PitchStudioAndroid.zip"
+          mkdir -p "$RUNNER_TEMP/pitchstudio-src"
+          unzip -q "$RUNNER_TEMP/PitchStudioAndroid.zip" -d "$RUNNER_TEMP/pitchstudio-src"
+          test -f "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build.gradle.kts"
+
+      - name: Aplicar Pitch Studio v1.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          cat .pitchstudio/online01.b64 .pitchstudio/online02a.b64 .pitchstudio/online02b.b64 .pitchstudio/online02c.b64 | base64 --decode > "$SRC/app/src/main/java/br/com/timachado/pitchstudio/OnlineMusic.kt"
+          test "$(wc -c < "$SRC/app/src/main/java/br/com/timachado/pitchstudio/OnlineMusic.kt")" -eq 10031
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "pitchstudio-src/PitchStudioAndroid"
+
+          # Gradle: versão 1.1.0 + DSL atual do Kotlin.
+          p = root / "app/build.gradle.kts"
+          s = p.read_text(encoding="utf-8")
+          s = s.replace("versionCode = 1", "versionCode = 2")
+          s = s.replace('versionName = "1.0.0"', 'versionName = "1.1.0"')
+          s = s.replace('    kotlinOptions { jvmTarget = "17" }\n', "")
+          if "import org.jetbrains.kotlin.gradle.dsl.JvmTarget" not in s:
+              s = "import org.jetbrains.kotlin.gradle.dsl.JvmTarget\n\n" + s
+          if "kotlin {\n    compilerOptions" not in s:
+              s += '\n\nkotlin {\n    compilerOptions {\n        jvmTarget = JvmTarget.fromTarget("17")\n    }\n}\n'
+          p.write_text(s, encoding="utf-8")
+
+          # INTERNET somente para busca oficial e importação de URL HTTPS direta.
+          p = root / "app/src/main/AndroidManifest.xml"
+          s = p.read_text(encoding="utf-8")
+          if 'android.permission.INTERNET' not in s:
+              s = s.replace(
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET" />'
+              )
+          p.write_text(s, encoding="utf-8")
+
+          # Decoder: adiciona entrada por arquivo temporário baixado.
+          p = root / "app/src/main/java/br/com/timachado/pitchstudio/audio/AudioDecoder.kt"
+          s = p.read_text(encoding="utf-8")
+          if "fun decodeFile(" not in s:
+              start = s.index("    fun decode(")
+              extractor_marker = "        val extractor = MediaExtractor()\n        extractor.setDataSource(context, uri, null)"
+              marker_pos = s.index(extractor_marker, start)
+              old = s[start:marker_pos + len(extractor_marker)]
+              new = '''    fun decode(
+              context: Context,
+              uri: Uri,
+              displayName: String,
+              onProgress: (Progress) -> Unit = {}
+          ): AudioProject = decodeInternal(context, displayName, onProgress) { extractor ->
+              extractor.setDataSource(context, uri, null)
+          }
+
+          fun decodeFile(
+              context: Context,
+              file: File,
+              displayName: String,
+              onProgress: (Progress) -> Unit = {}
+          ): AudioProject = decodeInternal(context, displayName, onProgress) { extractor ->
+              extractor.setDataSource(file.absolutePath)
+          }
+
+          private fun decodeInternal(
+              context: Context,
+              displayName: String,
+              onProgress: (Progress) -> Unit,
+              setSource: (MediaExtractor) -> Unit
+          ): AudioProject {
+              val extractor = MediaExtractor()
+              setSource(extractor)'''
+              s = s[:start] + new + s[start + len(old):]
+          p.write_text(s, encoding="utf-8")
+
+          # MainActivity: acrescenta os dois novos fluxos sem alterar o motor já aprovado.
+          p = root / "app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
+          s = p.read_text(encoding="utf-8")
+
+          if "OnlineMusic.showYouTubeSearch" not in s:
+              marker = '        waveform = WaveformView(this).apply {'
+              idx = s.index(marker)
+              online = '''        val online = row()
+          online.addView(button("Buscar no YouTube") {
+              OnlineMusic.showYouTubeSearch(this) { statusLabel.text = it }
+          }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(6) })
+          online.addView(button("Importar link de áudio") {
+              OnlineMusic.showDirectAudioImport(
+                  activity = this,
+                  cacheDir = cacheDir,
+                  onStatus = { statusLabel.text = it },
+                  onProgress = { message, value -> showProgress(message, value) },
+                  onDownloaded = { file, name -> loadRemoteAudio(file, name) },
+                  onError = { message -> hideProgress("Falha ao importar: " + message) }
+              )
+          }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(6) })
+          root.addView(online, full(wrap(), top = 10))
+          root.addView(
+              text("YouTube usa a busca oficial. Links HTTPS diretos de áudio podem ser importados e processados localmente.", 12f, false),
+              full(wrap(), top = 6)
+          )
+
+          '''
+              s = s[:idx] + online + s[idx:]
+
+          if "private fun loadRemoteAudio(" not in s:
+              marker = '    private fun pickAudio() {'
+              idx = s.index(marker)
+              method = '''    private fun loadRemoteAudio(file: File, name: String) {
+              player.pause()
+              refreshPlayButton()
+              showProgress("Decodificando áudio importado…", 0)
+              executor.execute {
+                  try {
+                      val p = AudioDecoder.decodeFile(this, file, name) { pr ->
+                          handler.post { showProgress(pr.message, pr.percent) }
+                      }
+                      val estimate = try { KeyEstimator.estimate(p) } catch (_: Throwable) { null }
+                      file.delete()
+                      handler.post {
+                          player.pause()
+                          cleanupProjects()
+                          fileLabel.text = name
+                          original = p
+                          processed = null
+                          keyEstimate = estimate
+                          waveform.waveform = p.waveform
+                          waveform.progress = 0.0
+                          player.setProject(p)
+                          useProcessed = false
+                          updateAbButton()
+                          updateKeyLabel()
+                          hideProgress("Áudio importado da internet. O processamento permanece local no aparelho.")
+                          scheduleProcess(immediate = true)
+                      }
+                  } catch (t: Throwable) {
+                      file.delete()
+                      handler.post {
+                          hideProgress("Falha ao decodificar o áudio importado: " + (t.message ?: "formato incompatível"))
+                      }
+                  }
+              }
+          }
+
+          '''
+              s = s[:idx] + method + s[idx:]
+
+          p.write_text(s, encoding="utf-8")
+
+          print("Pitch Studio v1.1 aplicado.")
+          PY
+
+      - name: Aplicar Pitch Studio v1.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+
+          cp .pitchstudio/v12/ExtractorDownloader.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/ExtractorDownloader.kt"
+          cp .pitchstudio/v12/YouTubeImporter.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/YouTubeImporter.kt"
+          cp .pitchstudio/v12/YouTubeUi.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/YouTubeUi.kt"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "pitchstudio-src/PitchStudioAndroid"
+
+          # AndroidX é necessário pelas dependências HTTP atuais.
+          p = root / "gradle.properties"
+          s = p.read_text(encoding="utf-8") if p.exists() else ""
+          if "android.useAndroidX=true" not in s:
+              if s and not s.endswith("\n"):
+                  s += "\n"
+              s += "android.useAndroidX=true\n"
+          p.write_text(s, encoding="utf-8")
+
+          # JitPack para NewPipeExtractor.
+          p = root / "settings.gradle.kts"
+          s = p.read_text(encoding="utf-8")
+          if "https://jitpack.io" not in s:
+              s = s.replace(
+                  "mavenCentral()",
+                  'mavenCentral()\n        maven { url = uri("https://jitpack.io") }'
+              )
+          p.write_text(s, encoding="utf-8")
+
+          # v1.2 + dependências do extrator local.
+          p = root / "app/build.gradle.kts"
+          s = p.read_text(encoding="utf-8")
+          s = s.replace("versionCode = 2", "versionCode = 3")
+          s = s.replace('versionName = "1.1.0"', 'versionName = "1.2.0"')
+
+          if "isCoreLibraryDesugaringEnabled = true" not in s:
+              s, count = re.subn(
+                  r'(targetCompatibility\s*=\s*JavaVersion\.VERSION_17\s*\n)(\s*})',
+                  r'\1        isCoreLibraryDesugaringEnabled = true\n\2',
+                  s,
+                  count=1
+              )
+              if count != 1:
+                  raise SystemExit("compileOptions não encontrado para desugaring")
+
+          if "com.github.teamnewpipe:newpipeextractor:0.26.5" not in s:
+              s += """
+          
+          dependencies {
+              implementation("com.github.teamnewpipe:newpipeextractor:0.26.5")
+              implementation("com.squareup.okhttp3:okhttp:5.4.0")
+              coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+          }
+          """
+          p.write_text(s, encoding="utf-8")
+
+          # Busca do YouTube agora fica dentro do Pitch Studio e importa o áudio escolhido.
+          p = root / "app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
+          s = p.read_text(encoding="utf-8")
+          old = 'OnlineMusic.showYouTubeSearch(this) { statusLabel.text = it }'
+          new = """YouTubeUi.show(
+              activity = this,
+              cacheDir = cacheDir,
+              onStatus = { statusLabel.text = it },
+              onProgress = { message, value -> showProgress(message, value) },
+              onDownloaded = { file, name -> loadRemoteAudio(file, name) },
+              onError = { message -> hideProgress("Falha no YouTube: " + message) }
+          )"""
+          if old not in s:
+              raise SystemExit("chamada antiga de busca YouTube não encontrada")
+          s = s.replace(old, new, 1)
+          s = s.replace(
+              "YouTube usa a busca oficial. Links HTTPS diretos de áudio podem ser importados e processados localmente.",
+              "YouTube: pesquise ou cole o link; o áudio é baixado temporariamente e carregado no Pitch Studio."
+          )
+          p.write_text(s, encoding="utf-8")
+
+          print("Pitch Studio v1.2 aplicado.")
+          PY
+
+      - name: Aplicar Pitch Studio v1.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 .pitchstudio/v13/patch_v13.py "$SRC"
+
+      - name: Aplicar Pitch Studio v1.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          cp .pitchstudio/v14/YouTubeBrowserActivity.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/YouTubeBrowserActivity.kt"
+          python3 .pitchstudio/v14/patch_v14.py "$SRC"
+
+      - name: Aplicar Pitch Studio v1.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 .pitchstudio/v15/patch_v15.py "$SRC"
+
+      - name: Aplicar Pitch Studio v1.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          cp .pitchstudio/v16/PcmAudioPlayer.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/audio/PcmAudioPlayer.kt"
+          cp .pitchstudio/v16/Mp3Exporter.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/audio/Mp3Exporter.kt"
+          cp .pitchstudio/v16/YouTubeBrowserActivity.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/YouTubeBrowserActivity.kt"
+          python3 .pitchstudio/v16/01_build.py "$SRC"
+          MANIFEST="$SRC/app/src/main/AndroidManifest.xml"
+          sed -i 's#<manifest xmlns:android="http://schemas.android.com/apk/res/android">#<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">#' "$MANIFEST"
+          sed -i '0,/<application/s//<application tools:replace="android:label"/' "$MANIFEST"
+          python3 .pitchstudio/v16/02_controls.py "$SRC"
+          python3 .pitchstudio/v16/03_setters.py "$SRC"
+
+          BUILD="$SRC/app/build.gradle.kts"
+          sed -i 's/versionCode = 7/versionCode = 10/' "$BUILD"
+          sed -i 's/versionName = "1.6.0"/versionName = "1.9.0"/' "$BUILD"
+
+          MAIN="$SRC/app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
+          sed -i '/if (useProcessed) player.setProject(out, player.fraction())/d' "$MAIN"
+          sed -i 's/val target = if (useProcessed) processed ?: o else o/val target = o/' "$MAIN"
+          sed -i 's/player.setProject(target, fraction)/player.setProject(target, fraction); applyPreviewParams()/' "$MAIN"
+
+      - name: Aplicar correções PitchStudio 1.9.1 (P0/P1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v191/patch_v191.py
+          python3 .pitchstudio/v191/patch_v191.py "$SRC"
+          grep -F 'versionName = "1.9.1"' "$SRC/app/build.gradle.kts"
+          test -f "$SRC/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+
+      - name: Aplicar correções PitchStudio 1.9.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v192/patch_v192.py
+          python3 .pitchstudio/v192/patch_v192.py "$SRC"
+          grep -F 'versionName = "1.9.2"' "$SRC/app/build.gradle.kts"
+
+      - name: Aplicar PitchStudio 1.9.3 Material 3 Expressive
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v193/patch_v193.py
+          python3 .pitchstudio/v193/patch_v193.py "$SRC"
+          grep -F 'versionName = "1.9.3"' "$SRC/app/build.gradle.kts"
+          grep -F 'Theme.PitchStudioExpressive' "$SRC/app/src/main/AndroidManifest.xml"
+          grep -F 'com.google.android.material:material:1.14.0' "$SRC/app/build.gradle.kts"
+
+      - name: Validar YouTube Material Expressive v1.9.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v194/patch_v194.py
+          python3 .pitchstudio/v194/patch_v194.py "$SRC"
+
+      - name: Corrigir inicialização YouTube v1.9.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v196/patch_v196.py
+          python3 .pitchstudio/v196/patch_v196.py "$SRC"
+
+      - name: Integrar biblioteca de projetos PitchStudio 1.9.7
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          cp .pitchstudio/v197/ProjectLibrary.kt "$SRC/app/src/main/java/br/com/timachado/pitchstudio/ProjectLibrary.kt"
+          python3 -m py_compile .pitchstudio/v197/patch_v197.py
+          python3 .pitchstudio/v197/patch_v197.py "$SRC"
+          grep -F 'versionName = "1.9.7"' "$SRC/app/build.gradle.kts"
+          grep -F 'Meus projetos' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
+
+      - name: Adicionar Tom Ideal ao PitchStudio 1.9.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          PKG="$SRC/app/src/main/java/br/com/timachado/pitchstudio"
+          cp .pitchstudio/v198/VoicePitchAnalyzer.kt "$PKG/VoicePitchAnalyzer.kt"
+          cp .pitchstudio/v198/TomIdealActivity.kt "$PKG/TomIdealActivity.kt"
+          python3 -m py_compile .pitchstudio/v198/patch_v198.py
+          python3 .pitchstudio/v198/patch_v198.py "$SRC"
+
+      - name: Integrar comparação voz e música 1.9.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          PKG="$SRC/app/src/main/java/br/com/timachado/pitchstudio"
+          cp .pitchstudio/v199/SongPhraseAnalyzer.kt "$PKG/SongPhraseAnalyzer.kt"
+          python3 -m py_compile .pitchstudio/v199/patch_v199.py
+          python3 .pitchstudio/v199/patch_v199.py "$SRC"
+          grep -F 'versionName = "1.9.9"' "$SRC/app/build.gradle.kts"
+
+      - name: Integrar seleção de trecho Tom Ideal 1.10.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v1100/patch_v1100.py
+          python3 .pitchstudio/v1100/patch_v1100.py "$SRC"
+          grep -F 'versionName = "1.10.0"' "$SRC/app/build.gradle.kts"
+
+      - name: Integrar filtro de melodia 1.10.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          PKG="$SRC/app/src/main/java/br/com/timachado/pitchstudio"
+          cp .pitchstudio/v1101/MelodyFocusEstimator.kt "$PKG/MelodyFocusEstimator.kt"
+          python3 -m py_compile .pitchstudio/v1101/patch_v1101.py
+          python3 .pitchstudio/v1101/patch_v1101.py "$SRC"
+          grep -F 'versionName = "1.10.1"' "$SRC/app/build.gradle.kts"
+
+      - name: Incluir motor MDX-Net e modelo vocal 1.10.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          PKG="$SRC/app/src/main/java/br/com/timachado/pitchstudio"
+          ASSETS="$SRC/app/src/main/assets"
+          mkdir -p "$ASSETS"
+          cp .pitchstudio/v1102/VocalStemSeparator.kt "$PKG/VocalStemSeparator.kt"
+          cp .pitchstudio/v1102/MODEL_NOTICE.txt "$ASSETS/MDX_MODEL_NOTICE.txt"
+          python3 -m py_compile .pitchstudio/v1102/patch_v1102.py
+          python3 .pitchstudio/v1102/patch_v1102.py "$SRC"
+          MODEL="$ASSETS/UVR_MDXNET_9482.onnx"
+          curl -fL --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 240 \
+            'https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/UVR_MDXNET_9482.onnx' \
+            -o "$MODEL"
+          python3 - "$MODEL" <<'PY'
+          from pathlib import Path
+          import sys,hashlib
+          file=Path(sys.argv[1]); data=file.read_bytes()
+          assert 25000000 < len(data) < 40000000, f'Modelo incompleto: {len(data)} bytes'
+          assert not data.startswith(b'<html'), 'Arquivo HTML no lugar do modelo'
+          assert hashlib.sha256(data).hexdigest() == '9d78f8566fa8198065214ab628be1de966a500c57786695aa4b13e2b27a7727d', 'Hash SHA-256 do modelo não corresponde à distribuição validada'
+          print('Modelo MDX-Net bytes:',len(data))
+          print('Modelo MDX-Net SHA-256:',hashlib.sha256(data).hexdigest())
+          PY
+          grep -F 'versionName = "1.10.2"' "$SRC/app/build.gradle.kts"
+
+      - name: Integrar prévia vocal PitchStudio 1.10.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v1103/patch_v1103.py
+          python3 .pitchstudio/v1103/patch_v1103.py "$SRC"
+          grep -F 'versionName = "1.10.3"' "$SRC/app/build.gradle.kts"
+
+      - name: Integrar exportação WAV 1.10.4 e testes
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          PKG="$SRC/app/src/main/java/br/com/timachado/pitchstudio"
+          TESTS="$SRC/app/src/test/java/br/com/timachado/pitchstudio"
+          mkdir -p "$TESTS"
+          cp .pitchstudio/v1104/StemWavExporter.kt "$PKG/StemWavExporter.kt"
+          cp .pitchstudio/v1104/StemWavExporterTest.kt "$TESTS/StemWavExporterTest.kt"
+          python3 -m py_compile .pitchstudio/v1104/patch_v1104.py
+          python3 .pitchstudio/v1104/patch_v1104.py "$SRC"
+          grep -F 'versionName = "1.10.4"' "$SRC/app/build.gradle.kts"
+
+      - name: Integrar separação vocal longa PitchStudio 1.10.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          PKG="$SRC/app/src/main/java/br/com/timachado/pitchstudio"
+          TESTS="$SRC/app/src/test/java/br/com/timachado/pitchstudio"
+          cp .pitchstudio/v1105/VocalStemSeparator.kt "$PKG/VocalStemSeparator.kt"
+          cp .pitchstudio/v1105/VocalChunkPlan.kt "$PKG/VocalChunkPlan.kt"
+          cp .pitchstudio/v1105/VocalChunkPlanTest.kt "$TESTS/VocalChunkPlanTest.kt"
+          python3 -m py_compile .pitchstudio/v1105/patch_v1105.py
+          python3 .pitchstudio/v1105/patch_v1105.py "$SRC"
+          grep -F 'versionName = "1.10.5"' "$SRC/app/build.gradle.kts"
+
+      - name: Aplicar estabilidade PitchStudio 1.10.6 e testes MP3
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          AUDIO="$SRC/app/src/main/java/br/com/timachado/pitchstudio/audio"
+          TESTS="$SRC/app/src/test/java/br/com/timachado/pitchstudio/audio"
+          mkdir -p "$TESTS"
+          cp .pitchstudio/v1106/Mp3Exporter.kt "$AUDIO/Mp3Exporter.kt"
+          cp .pitchstudio/v1106/Mp3ExporterRegressionTest.kt "$TESTS/Mp3ExporterRegressionTest.kt"
+          python3 -m py_compile .pitchstudio/v1106/patch_v1106.py
+          python3 .pitchstudio/v1106/patch_v1106.py "$SRC"
+          grep -F 'versionName = "1.10.6"' "$SRC/app/build.gradle.kts"
+
+      - name: Aplicar estabilidade YouTube PitchStudio 1.10.7
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          PKG="$SRC/app/src/main/java/br/com/timachado/pitchstudio"
+          TESTS="$SRC/app/src/test/java/br/com/timachado/pitchstudio"
+          cp .pitchstudio/v1107/YouTubeUrlRules.kt "$PKG/YouTubeUrlRules.kt"
+          cp .pitchstudio/v1107/YouTubeUrlRulesTest.kt "$TESTS/YouTubeUrlRulesTest.kt"
+          python3 -m py_compile .pitchstudio/v1107/patch_v1107.py
+          python3 .pitchstudio/v1107/patch_v1107.py "$SRC"
+          grep -F 'versionName = "1.10.7"' "$SRC/app/build.gradle.kts"
+
+      - name: Aplicar controle de cancelamento vocal 1.10.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v1108/patch_v1108.py
+          python3 .pitchstudio/v1108/patch_v1108.py "$SRC"
+          grep -F 'versionName = "1.10.8"' "$SRC/app/build.gradle.kts"
+
+      - name: Aplicar PitchStudio independente 1.10.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v1109/patch_v1109.py
+          python3 .pitchstudio/v1109/patch_v1109.py "$SRC"
+          grep -F 'versionName = "1.10.9"' "$SRC/app/build.gradle.kts"
+
+      - name: Empacotar fontes de diagnóstico
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          tar -C "$SRC" -czf "$RUNNER_TEMP/PitchStudio-v1.5-sources.tgz"             app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt             app/src/main/java/br/com/timachado/pitchstudio/audio/DspEngine.kt             app/src/main/java/br/com/timachado/pitchstudio/audio/PcmAudioPlayer.kt             app/src/main/java/br/com/timachado/pitchstudio/audio/Mp3Exporter.kt             app/src/main/java/br/com/timachado/pitchstudio/YouTubeBrowserActivity.kt             app/src/main/java/br/com/timachado/pitchstudio/YouTubeImporter.kt             app/build.gradle.kts             settings.gradle.kts             gradle.properties
+
+      - name: Publicar fontes de diagnóstico
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitchStudio-v1.5-sources
+          path: ${{ runner.temp }}/PitchStudio-v1.5-sources.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Exportar projeto integral para Android Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          test -f "$SRC/app/build.gradle.kts"
+          test -f "$SRC/app/src/main/assets/UVR_MDXNET_9482.onnx"
+          tar --exclude="*/build/*" --exclude="*/.gradle/*" \
+            -C "$RUNNER_TEMP/pitchstudio-src" \
+            -czf "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz" PitchStudioAndroid
+          tar -tzf "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz" |
+            grep -q "PitchStudioAndroid/app/build.gradle.kts"
+          ls -lh "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz"
+
+      - name: Publicar projeto Android Studio
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitchStudio-v1.10.9-AndroidStudio-source
+          path: ${{ runner.temp }}/PitchStudio-v1.10.9-AndroidStudio.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Preparar Android SDK
+        shell: bash
+        run: |
+          set -e
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -path "*/bin/sdkmanager" | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          echo "sdkmanager=$SDKMANAGER"
+          if [ ! -d "$ANDROID_HOME/platforms/android-36" ] || [ ! -d "$ANDROID_HOME/build-tools/35.0.0" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            timeout 180 "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+          else
+            echo "Android API 36 e Build Tools 35.0.0 já disponíveis."
+          fi
+          ls -d "$ANDROID_HOME/platforms/android-36"
+          ls -d "$ANDROID_HOME/build-tools/35.0.0"
+
+      - name: Compilar APK
+        shell: bash
+        working-directory: ${{ runner.temp }}/pitchstudio-src/PitchStudioAndroid
+        run: |
+          gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Verificar APK
+        shell: bash
+        working-directory: ${{ runner.temp }}/pitchstudio-src/PitchStudioAndroid
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitchStudio-v1.10.9-Standalone-preview-apk
+          path: ${{ runner.temp }}/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Habilitar KVM para o emulador Android
+        shell: bash
+        run: |
+          if test -e /dev/kvm; then sudo chmod 666 /dev/kvm; fi
+
+      - name: QA independente voz 18s, cancelamento, WAV, MP3 e YouTube Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          script: bash "$GITHUB_WORKSPACE/.pitchstudio/v1109/smoke-standalone.sh" "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
+
+      - name: Criar APK ARM64 otimizado
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
+          TEST_APK="$RUNNER_TEMP/PitchStudio-v1.10.9-arm64-unsigned.apk"
+          ALIGNED="$RUNNER_TEMP/PitchStudio-v1.10.9-arm64-aligned.apk"
+          OUT="$RUNNER_TEMP/PitchStudio-v1.10.9-arm64-preview.apk"
+          TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -f "$SRC"
+          cp "$SRC" "$TEST_APK"
+          zip -q -d "$TEST_APK" 'lib/armeabi-v7a/*' 'lib/x86/*' 'lib/x86_64/*'
+          "$TOOLS/zipalign" -p -f 4 "$TEST_APK" "$ALIGNED"
+          KEYSTORE="$HOME/.android/debug.keystore"
+          if [ ! -f "$KEYSTORE" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -keystore "$KEYSTORE" -storepass android -keypass android \
+              -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          "$TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-pass pass:android \
+            --key-pass pass:android --ks-key-alias androiddebugkey \
+            --out "$OUT" "$ALIGNED"
+          "$TOOLS/apksigner" verify --verbose "$OUT"
+          python3 - "$OUT" <<'PY'
+          import sys,zipfile,hashlib
+          from pathlib import Path
+          apk=Path(sys.argv[1])
+          with zipfile.ZipFile(apk) as z:
+              assert z.testzip() is None
+              abis={name.split('/')[1] for name in z.namelist() if name.startswith('lib/') and name.endswith('.so')}
+              assert abis=={'arm64-v8a'}, f'ABIs inesperadas: {abis}'
+              assert 'assets/UVR_MDXNET_9482.onnx' in z.namelist()
+              model=z.read('assets/UVR_MDXNET_9482.onnx')
+              assert hashlib.sha256(model).hexdigest()=='9d78f8566fa8198065214ab628be1de966a500c57786695aa4b13e2b27a7727d'
+          print('ARM64 optimized APK MB:',round(apk.stat().st_size/1024/1024,2))
+          print('ARM64 APK SHA-256:',hashlib.sha256(apk.read_bytes()).hexdigest())
+          PY
+
+      - name: Publicar APK ARM64
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitchStudio-v1.10.9-Standalone-ARM64-apk
+          path: ${{ runner.temp }}/PitchStudio-v1.10.9-arm64-preview.apk
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publicar evidências do teste Android
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitchStudio-v1.10.9-android-ui-smoke
+          path: ${{ runner.temp }}/pitchstudio-standalone-1109-smoke/
+          if-no-files-found: warn
+          retention-days: 7
