@@ -1,18 +1,25 @@
-# PitchStudio — T.I. Machado
+# BEAT flow · by T.I. Machado
 
-Aplicativo Android de áudio, edição de tom, velocidade, biblioteca musical e análise vocal offline.
+> **Seu som. No seu ritmo.**
 
-## Estado do desenvolvimento
-- **MVP:** validação de qualidade em andamento (não é versão comercial).
-- **Versão de referência para migração:** v1.10.8, originada do projeto aprovado de QA.
-- **Branch de homologação:** `staging/pitchstudio-1109`. A branch `main` fica reservada para futuras versões revisadas.
+**BEAT flow** é a marca escolhida pela T.I. Machado para o aplicativo Android de áudio, música, ajuste de tom e análise vocal com IA. O código está mantido no repositório histórico `timachado/PitchStudio` até a migração operacional de todo o projeto.
 
-## Repositório independente
-Este repositório está sendo preparado para conter o código-fonte, os patches históricos necessários à reconstrução e um workflow Android próprio, sem depender de pastas do projeto Brother Matrizes.
+## Identidade oficial do aplicativo
+- Marca principal: **BEAT flow** (grafia de apresentação).
+- Pronúncia: *beat flow*; identidade jovem, musical e expressiva.
+- Assinatura: **by T.I. Machado**.
+- Slogan: **Seu som. No seu ritmo.**
+- Direção visual: fundo azul-noturno, lima elétrica `#C8FF70`, coral `#FF628B` e lilás `#C4B3FF`. Símbolo vetorial **b** com pulso musical.
+- Arquitetura futura possível: **BEAT flow music**, **BEAT flow studio** e **BEAT flow AI**. Essas extensões **ainda não foram lançadas**.
 
-Nenhum certificado de assinatura de produção deve ser enviado ao Git. APKs gerados por CI nesta fase são **debug/QA**, não releases comerciais.
+## Estado técnico
+- Versão de homologação da marca: **1.11.0**; branch `feature/beatflow-brand-1110`.
+- Motor e recursos preservados da v1.10.9: biblioteca, player, tom, WAV/MP3, MDX-Net vocal 6/12/18 segundos e cancelamento.
+- App ID da prévia: `br.com.timachado.beatflow.brandqa` (instalável em paralelo com versões QA anteriores).
+- **Não é uma versão release da loja**: APK de depuração e assinatura temporária da CI.
+- Pipeline GitHub Actions recompõe o projeto, verifica nome do launcher, compila/testa Android e publica um APK ARM64 e as fontes reconstruídas do Android Studio.
 
-## Próximas verificações
-A homologação física deve confirmar importação local, alteração de tom, MP3/WAV, modelo vocal de 6/12/18 segundos, interrupção, desempenho e estabilidade no Motorola.
+## Direitos da marca e lançamento
+A decisão interna de usar **BEAT flow** não garante exclusividade jurídica. Há usos semelhantes no segmento de música; antes de investir em publicação pública, domínios ou registro, a T.I. Machado deve fazer pesquisa formal no **INPI**, verificar classes e risco de confusão, e considerar aconselhamento especializado. A alteração do aplicativo nesta branch é uma **prévia interna de identidade**, sem representação de titularidade exclusiva sobre o nome.
 
-**Observação:** antes da distribuição comercial, a integração com o YouTube deve passar por revisão de conformidade com as políticas da plataforma e de direitos autorais.
+A integração com serviços de terceiros, inclusive YouTube, demanda avaliação técnica, direitos autorais e conformidade com as políticas oficiais para lançamento comercial.
