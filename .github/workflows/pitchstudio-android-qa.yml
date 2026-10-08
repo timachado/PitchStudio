@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - staging/pitchstudio-1109
+      - feature/beatflow-brand-1110
   workflow_dispatch:
 
 permissions:
@@ -522,6 +523,17 @@ jobs:
           python3 .pitchstudio/v1109/patch_v1109.py "$SRC"
           grep -F 'versionName = "1.10.9"' "$SRC/app/build.gradle.kts"
 
+      - name: Aplicar marca BEAT flow 1.11.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v1110/patch_brand.py
+          python3 .pitchstudio/v1110/patch_brand.py "$SRC"
+          grep -F 'versionName = "1.11.0"' "$SRC/app/build.gradle.kts"
+          grep -F 'applicationId = "br.com.timachado.beatflow"' "$SRC/app/build.gradle.kts"
+          grep -F '<string name="app_name">BEAT flow</string>' "$SRC/app/src/main/res/values/strings.xml"
+
       - name: Empacotar fontes de diagnóstico
         shell: bash
         run: |
@@ -546,16 +558,16 @@ jobs:
           test -f "$SRC/app/src/main/assets/UVR_MDXNET_9482.onnx"
           tar --exclude="*/build/*" --exclude="*/.gradle/*" \
             -C "$RUNNER_TEMP/pitchstudio-src" \
-            -czf "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz" PitchStudioAndroid
-          tar -tzf "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz" |
+            -czf "$RUNNER_TEMP/BEAT-flow-v1.11.0-AndroidStudio.tar.gz" PitchStudioAndroid
+          tar -tzf "$RUNNER_TEMP/BEAT-flow-v1.11.0-AndroidStudio.tar.gz" |
             grep -q "PitchStudioAndroid/app/build.gradle.kts"
-          ls -lh "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz"
+          ls -lh "$RUNNER_TEMP/BEAT-flow-v1.11.0-AndroidStudio.tar.gz"
 
       - name: Publicar projeto Android Studio
         uses: actions/upload-artifact@v4
         with:
-          name: PitchStudio-v1.10.9-AndroidStudio-source
-          path: ${{ runner.temp }}/PitchStudio-v1.10.9-AndroidStudio.tar.gz
+          name: BEAT-flow-v1.11.0-AndroidStudio-source
+          path: ${{ runner.temp }}/BEAT-flow-v1.11.0-AndroidStudio.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -598,13 +610,17 @@ jobs:
         working-directory: ${{ runner.temp }}/pitchstudio-src/PitchStudioAndroid
         run: |
           test -f app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk |
+            grep -F "application-label:'BEAT flow'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk |
+            grep -F "package: name='br.com.timachado.beatflow.brandqa'"
           ls -lh app/build/outputs/apk/debug/app-debug.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
-          name: PitchStudio-v1.10.9-Standalone-preview-apk
+          name: BEAT-flow-v1.11.0-Brand-preview-apk
           path: ${{ runner.temp }}/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
@@ -622,7 +638,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           disable-animations: true
-          script: bash "$GITHUB_WORKSPACE/.pitchstudio/v1109/smoke-standalone.sh" "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
+          script: bash "$GITHUB_WORKSPACE/.pitchstudio/v1110/smoke-brand.sh" "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
 
       - name: Criar APK ARM64 otimizado
         if: always()
@@ -630,9 +646,9 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
-          TEST_APK="$RUNNER_TEMP/PitchStudio-v1.10.9-arm64-unsigned.apk"
-          ALIGNED="$RUNNER_TEMP/PitchStudio-v1.10.9-arm64-aligned.apk"
-          OUT="$RUNNER_TEMP/PitchStudio-v1.10.9-arm64-preview.apk"
+          TEST_APK="$RUNNER_TEMP/BEAT-flow-v1.11.0-arm64-unsigned.apk"
+          ALIGNED="$RUNNER_TEMP/BEAT-flow-v1.11.0-arm64-aligned.apk"
+          OUT="$RUNNER_TEMP/BEAT-flow-v1.11.0-arm64-preview.apk"
           TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -f "$SRC"
           cp "$SRC" "$TEST_APK"
@@ -668,8 +684,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PitchStudio-v1.10.9-Standalone-ARM64-apk
-          path: ${{ runner.temp }}/PitchStudio-v1.10.9-arm64-preview.apk
+          name: BEAT-flow-v1.11.0-Brand-ARM64-apk
+          path: ${{ runner.temp }}/BEAT-flow-v1.11.0-arm64-preview.apk
           if-no-files-found: warn
           retention-days: 7
 
@@ -677,7 +693,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PitchStudio-v1.10.9-android-ui-smoke
-          path: ${{ runner.temp }}/pitchstudio-standalone-1109-smoke/
+          name: BEAT-flow-v1.11.0-android-ui-smoke
+          path: ${{ runner.temp }}/beatflow-brand-1110-smoke/
           if-no-files-found: warn
           retention-days: 7
