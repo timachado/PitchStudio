@@ -537,6 +537,28 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Exportar projeto integral para Android Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          test -f "$SRC/app/build.gradle.kts"
+          test -f "$SRC/app/src/main/assets/UVR_MDXNET_9482.onnx"
+          tar --exclude="*/build/*" --exclude="*/.gradle/*" \
+            -C "$RUNNER_TEMP/pitchstudio-src" \
+            -czf "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz" PitchStudioAndroid
+          tar -tzf "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz" |
+            grep -q "PitchStudioAndroid/app/build.gradle.kts"
+          ls -lh "$RUNNER_TEMP/PitchStudio-v1.10.9-AndroidStudio.tar.gz"
+
+      - name: Publicar projeto Android Studio
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitchStudio-v1.10.9-AndroidStudio-source
+          path: ${{ runner.temp }}/PitchStudio-v1.10.9-AndroidStudio.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Java 17
         uses: actions/setup-java@v4
         with:
