@@ -297,12 +297,28 @@ PY
 read -r SAVE_X SAVE_Y <<<"$SAVE_POS"
 echo "Confirmando salvamento SAF em $SAVE_X,$SAVE_Y"
 adb shell input tap "$SAVE_X" "$SAVE_Y"
-sleep 5
-readui
-if ! grep -q 'Voz isolada salva em WAV no local escolhido' "$OUT/current.xml"; then
-  echo "FALHA: o aplicativo não confirmou a gravação do WAV pelo ContentResolver." >&2
+# Status fica dentro de ScrollView e pode não aparecer no dump quando
+# o Android devolve o foco após o seletor de arquivos. Em vez de depender
+# do texto visível, validar o arquivo salvo (bytes abaixo) e o staging limpo.
+SAVE_OK=0
+for attempt in $(seq 1 20); do
+  SAVED_REMOTE=$(adb shell find /sdcard/Download /sdcard/Documents /sdcard/Music -maxdepth 3 -type f -name 'BEATflow_Voz_Isolada*.wav' 2>/dev/null | tr -d '\r' | head -n1 || true)
+  if [ -n "$SAVED_REMOTE" ] &&
+     ! adb shell run-as "$PKG" ls cache | grep -q "$STAGE"; then
+    SAVE_OK=1
+    break
+  fi
+  sleep 1
+done
+if [ "$SAVE_OK" -ne 1 ]; then
+  echo "FALHA: ContentResolver não gerou o WAV completo nem limpou o staging." >&2
+  readui
   grep -Eo 'text="[^"]{0,140}"' "$OUT/current.xml" | tail -n 25 || true
   exit 1
+fi
+readui
+if ! grep -q 'Voz isolada salva em WAV no local escolhido' "$OUT/current.xml"; then
+  echo "AVISO: mensagem de conclusão fora da viewport; arquivo WAV salvo confirmado no Android."
 fi
 if adb shell run-as "$PKG" ls cache | grep -q "$STAGE"; then
   echo "FALHA: arquivo WAV de staging não foi apagado após salvar." >&2
