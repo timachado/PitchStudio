@@ -56,9 +56,31 @@ for e in root.iter('node'):
 if items:
     items.sort(key=lambda it:it[:2])
     a,b,c,d=items[0][2]
-    print((a+c)//2,(b+d)//2)
+    # Nem todo nó presente no XML está tocável: nunca enviar tap à
+    # barra de gestos do Android (bug real do antigo smoke em y=2304).
+    screen=list(map(int,re.findall(r'\d+',root.find('node').get('bounds',''))))
+    screen_h=screen[3] if len(screen)==4 else 2340
+    x,y=(a+c)//2,(b+d)//2
+    if y>=screen_h-340:
+        print('SCROLL_UP')
+    elif y<=140:
+        print('SCROLL_DOWN')
+    else:
+        print(x,y)
 PY
 )"
+    if [ "$coords" = "SCROLL_UP" ]; then
+      echo "QA Stage: rolando para revelar controle abaixo da área segura: $label"
+      adb shell input swipe 1045 1730 1045 770 260
+      sleep 0.45
+      continue
+    fi
+    if [ "$coords" = "SCROLL_DOWN" ]; then
+      echo "QA Stage: rolando para revelar controle acima da área segura: $label"
+      adb shell input swipe 1045 760 1045 1750 260
+      sleep 0.45
+      continue
+    fi
     if [ -n "$coords" ]; then
       echo "QA Stage: TOQUE: $label -> $coords"
       adb shell input tap $coords
