@@ -111,7 +111,8 @@ visible_song_validation() {
 import sys,xml.etree.ElementTree as ET
 try:
     root=ET.parse(sys.argv[1]).getroot()
-    ok=any(sys.argv[2] in ((n.get("text") or "")+" "+(n.get("content-desc") or ""))
+    ok=any((n.get("text") or "")==sys.argv[2] or
+           (n.get("content-desc") or "")==sys.argv[2]
            for n in root.iter("node"))
 except (OSError,ET.ParseError):
     ok=False
@@ -128,9 +129,9 @@ PY
   exit 1
 }
 tap "Isolar voz com IA"
-visible_song_validation "Importe uma música"
+visible_song_validation "Importe uma música para isolar a voz do trecho."
 tap "Analisar trecho selecionado"
-visible_song_validation "Importe uma música"
+visible_song_validation "Importe uma música antes de abrir o Tom Ideal para obter uma comparação."
 # O novo card de IA desloca o microfone para cima na tela:
 # retornar ao topo antes de tentar tocar no botão.
 for up in 1 2 3 4 5; do adb shell input swipe 520 500 520 1550 230; done
