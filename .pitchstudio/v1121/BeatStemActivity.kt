@@ -246,6 +246,9 @@ class BeatStemActivity : Activity() {
                     }else{result=output;ready()}
                 }
             }catch(e:Throwable){
+                android.util.Log.e("BEATflow-Separation",
+                    "Falha ao separar faixa local: frames="+source.frames+
+                    ", canais="+source.channels+", sampleRate="+source.sampleRate, e)
                 runOnUiThread{if(!isDestroyed){
                     message.text=if(e is InterruptedIOException)
                         "Processamento cancelado." else "Falha: "+(e.message?:"erro de IA")
