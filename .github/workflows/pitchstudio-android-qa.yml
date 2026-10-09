@@ -723,6 +723,9 @@ jobs:
           tar -xJf .pitchstudio/v1134/v1134.tar.xz -C "$RUNNER_TEMP/beatflow-1134"
           python3 -m py_compile "$RUNNER_TEMP/beatflow-1134/apply.py"
           python3 "$RUNNER_TEMP/beatflow-1134/apply.py" "$SRC"
+          python3 -m py_compile .pitchstudio/v1134/fix_stage_entry.py
+          python3 .pitchstudio/v1134/fix_stage_entry.py "$SRC"
+          grep -F 'O acesso ao Palco deve ficar visível' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
           grep -F 'versionName = "1.13.4"' "$SRC/app/build.gradle.kts"
           grep -F 'Modo Palco e Ensaio' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
           grep -F '.StageActivity' "$SRC/app/src/main/AndroidManifest.xml"
