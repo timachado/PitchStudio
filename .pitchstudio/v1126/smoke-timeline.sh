@@ -39,7 +39,7 @@ tap "Ir para o trecho"
 adb shell am force-stop "$PKG"
 adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity"
 sleep 5
-tap "Meus projetos"
+tap "Biblioteca Inteligente"
 tap "Teste Playback 180s"
 tap "Abrir e continuar"
 sleep 5
