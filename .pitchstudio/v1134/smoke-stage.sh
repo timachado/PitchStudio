@@ -9,7 +9,16 @@ refresh() {
   adb shell uiautomator dump /sdcard/beatflow-stage.xml >/dev/null
   adb exec-out cat /sdcard/beatflow-stage.xml > "$UI"
 }
-visible() { refresh; grep -Fq "text=\"$1\"" "$UI"; }
+visible() {
+  refresh
+  python3 - "$UI" "$1" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+if not any(n.get('text','')==sys.argv[2] for n in root.iter('node')):
+    print('QA Stage: rótulo não visível:',repr(sys.argv[2]),file=sys.stderr)
+    raise SystemExit(1)
+PY
+}
 click_text() {
   local label="$1" coords
   refresh
