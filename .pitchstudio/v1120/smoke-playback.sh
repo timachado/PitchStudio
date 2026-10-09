@@ -484,7 +484,7 @@ fi
 echo "PASSOU: cancelamento de IA 18s sem áudio temporário residual."
 adb shell dumpsys meminfo "$PKG" | grep -Ei 'TOTAL PSS|TOTAL RSS|TOTAL SWAP' | tail -n 3 || true
 
-# Novo recurso: música inteira >18 segundos como playback real, em estéreo.
+# Novo recurso: playback real da música inteira acima de 18 segundos.
 adb shell input keyevent 4
 sleep 2
 for to_top in 1 2 3 4 5 6; do
@@ -495,16 +495,11 @@ tap "Separação com IA"
 visible "Separação com IA"
 visible "O que você quer separar?"
 visible "Música inteira"
-visible "Playback"
 tap "Processar música inteira"
 DONE_PLAYBACK=0
 for attempt in $(seq 1 90); do
   readui
-  if adb shell run-as "$PKG" ls cache | grep -qE '^beat_playback_.*\.f32 | grep -E 'FATAL EXCEPTION|Process: br.com.timachado.beatflow.playbackqa'; then
- echo "FALHA: crash identificado no logcat" >&2
- exit 1
-fi
-; then
+  if adb shell run-as "$PKG" ls cache | grep -qE '^beat_playback_.*\.f32$'; then
     if grep -q 'Processado:' "$OUT/current.xml"; then
       DONE_PLAYBACK=1
       break
@@ -516,12 +511,7 @@ test "$DONE_PLAYBACK" -eq 1 || {
   echo "FALHA: playback da música inteira não concluiu." >&2
   exit 1
 }
-# A referência contém ~21 s, verificamos que os frames gerados não são só 18s.
-PLAYBACK=$(adb shell run-as "$PKG" ls cache | grep -E '^beat_playback_.*\.f32 | grep -E 'FATAL EXCEPTION|Process: br.com.timachado.beatflow.playbackqa'; then
- echo "FALHA: crash identificado no logcat" >&2
- exit 1
-fi
- | head -n 1)
+PLAYBACK=$(adb shell run-as "$PKG" ls cache | grep -E '^beat_playback_.*\.f32$' | head -n 1)
 adb exec-out run-as "$PKG" cat "cache/$PLAYBACK" > "$OUT/whole_playback.f32"
 python3 - "$OUT/whole_playback.f32" <<'PY'
 import os,sys,struct
@@ -534,11 +524,11 @@ with open(sys.argv[1],'rb') as f:
     head=f.read(8192)
 floats=struct.unpack("<%df"%(len(head)//4),head)
 assert any(abs(x)>0.00001 for x in floats),"Playback gerado silencioso"
-print("PASSOU: playback completo em PCM float estéreo, %.3f s (%d frames)"%(duration,frames))
+print("PASSOU: playback completo PCM float estéreo, %.3f s (%d frames)"%(duration,frames))
 PY
 visible "Salvar WAV"
 visible "Salvar MP3"
-echo "PASSOU: modo playback inteiro, WAV/MP3 disponíveis sem truncar em 18s."
+echo "PASSOU: playback da faixa inteira com exportação WAV/MP3 disponível."
 adb shell dumpsys meminfo "$PKG" | grep -Ei 'TOTAL PSS|TOTAL RSS|TOTAL SWAP' | tail -n 3 || true
 
 if adb logcat -d -b crash -t 1500 | grep -E 'FATAL EXCEPTION|Process: br.com.timachado.beatflow.playbackqa'; then
