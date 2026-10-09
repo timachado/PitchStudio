@@ -146,7 +146,38 @@ visible "Velocidade: Lenta"
 for scrollCount in 1 2 3 4 5 6; do adb shell input swipe 500 480 500 1400 180; done
 sleep 1
 click_text "Novo repertório"
+# A caixa de texto de um MaterialAlertDialog não recebe foco garantido.
+# Clicar nela antes de digitar impede que o comando input text vá para a tela
+# anterior; fechar primeiro o teclado evita o botão Criar sob a área de gestos.
+refresh
+name_bounds="$(python3 - "$UI" <<'PY'
+import re,sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+nodes=[n for n in root.iter('node') if n.get('class','').endswith('EditText') and n.get('enabled')=='true']
+if len(nodes)!=1:
+    raise SystemExit('QA Stage: caixa de nome não encontrada ou ambígua no diálogo Novo repertório')
+bounds=list(map(int,re.findall(r'\\d+',nodes[0].get('bounds',''))))
+if len(bounds)!=4 or bounds[0]>=bounds[2] or bounds[1]>=bounds[3]:
+    raise SystemExit('QA Stage: limites inválidos do campo de nome')
+print((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+PY
+)"
+adb shell input tap $name_bounds
 adb shell input text RepertorioQA
+sleep 0.5
+refresh
+python3 - "$UI" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+fields=[n for n in root.iter('node') if n.get('class','').endswith('EditText')]
+if len(fields)!=1 or fields[0].get('text')!='RepertorioQA':
+    raise SystemExit('QA Stage: nome do repertório não foi digitado no campo esperado')
+PY
+# O toque no EditText abriu o IME. Primeiro fechá-lo, depois localizar Criar.
+# Não rolar a tela de fundo enquanto o diálogo modal está aberto.
+adb shell input keyevent KEYCODE_BACK
+sleep 0.7
+visible "Criar"
 click_text "Criar"
 visible "RepertorioQA · 0 músicas"
 adb exec-out run-as "$PKG" cat files/stage_setlists.json > "$TMP/repertorios.json"
