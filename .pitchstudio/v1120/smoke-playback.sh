@@ -499,8 +499,12 @@ tap "Processar música inteira"
 DONE_PLAYBACK=0
 for attempt in $(seq 1 90); do
   readui
-  if adb shell run-as "$PKG" ls cache | grep -qE '^beat_playback_.*\.f32$'; then
-    if grep -q 'Processado:' "$OUT/current.xml"; then
+  NAME=$(adb shell run-as "$PKG" ls cache | grep -E '^beat_playback_.*\.f32$' | head -n 1 || true)
+  if [ -n "$NAME" ]; then
+    BYTES=$(adb shell run-as "$PKG" stat -c%s "cache/$NAME" 2>/dev/null | tr -d '\r' || echo 0)
+    # O indicador fica em ScrollView, então a confirmação vem do tamanho
+    # efetivo do PCM temporário, checado novamente após sair do loop.
+    if [ "${BYTES:-0}" -ge 7373520 ]; then
       DONE_PLAYBACK=1
       break
     fi
