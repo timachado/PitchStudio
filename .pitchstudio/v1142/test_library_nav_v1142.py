@@ -12,6 +12,10 @@ new=s[pre:post]
 assert 'button("Biblioteca Inteligente") { showSavedProjects() }' in new
 assert 'button("Salvar projeto") { promptSaveProject() }' in new
 assert 'root.addView(libraryShortcuts, 2' in new
+assert 'if (root.getChildAt(1) !is MaterialCardView)' in new
+assert 'root.addView(recoveryActions, 3' in new
+assert s.count('button("Tom Ideal · Analisar minha voz")')==2
+assert s.count('button("Separação com IA · Gerar playback")')==2
 assert s.count('button("Biblioteca Inteligente")')==1
 assert s.count('button("Salvar projeto")')==1
 assert 'button("Meus projetos")' not in s[s.index('private fun reflowExpressiveUi()'):]
