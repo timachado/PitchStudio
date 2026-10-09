@@ -229,7 +229,7 @@ adb shell run-as "$PKG" cp /data/local/tmp/pitchstudio-vocal-test.json "files/sa
 adb shell am force-stop "$PKG"
 adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity"
 sleep 4
-tap "Meus projetos"
+tap "Biblioteca Inteligente"
 visible "Teste IA Musical"
 tap "Teste IA Musical"
 tap "Abrir e continuar"
@@ -698,7 +698,7 @@ adb shell run-as "$PKG" cp /data/local/tmp/beatflow-180.json "files/saved_audio_
 adb shell am force-stop "$PKG"
 adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity"
 sleep 5
-tap "Meus projetos"
+tap "Biblioteca Inteligente"
 tap "Teste Playback 180s"
 tap "Abrir e continuar"
 sleep 4
