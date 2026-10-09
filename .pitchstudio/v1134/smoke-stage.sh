@@ -68,7 +68,12 @@ adb install -r "$APK" >/dev/null
 adb shell am force-stop "$PKG" || true
 adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity" >/dev/null
 sleep 4
-# click_text agora procura nas duas direções, inclusive ao restaurar a tela.
+# Validar layout Material Expressive e Tom Ideal antes de testar Palco.
+visible "COMECE POR AQUI"
+click_text "Tom Ideal · Analisar minha voz"
+visible "Analisar minha voz"
+adb shell input keyevent 4
+sleep 2
 click_text "Modo Palco e Ensaio"
 visible "BEAT flow · Palco & Ensaio"
 # Controle de acompanhamento deve aparecer e não pode travar sem música aberta.
