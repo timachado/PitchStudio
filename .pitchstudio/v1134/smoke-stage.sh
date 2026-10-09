@@ -61,7 +61,21 @@ if items:
     screen=list(map(int,re.findall(r'\d+',root.find('node').get('bounds',''))))
     screen_h=screen[3] if len(screen)==4 else 2340
     x,y=(a+c)//2,(b+d)//2
-    if y>=screen_h-340:
+    nav_top=screen_h-132
+    for node in root.iter('node'):
+        if node.get('resource-id')=='android:id/navigationBarBackground':
+            nav=list(map(int,re.findall(r'\\d+',node.get('bounds',''))))
+            if len(nav)==4: nav_top=nav[1]
+            break
+    if target=='Criar':
+        # Botão de AlertDialog, não de ScrollView: rolar atrás do modal fecha
+        # o diálogo e dá falso negativo. Permitir y perto do rodapé apenas
+        # enquanto estiver fora da área real de navegação do sistema.
+        if y>=nav_top-12:
+            print('DIALOG_BUTTON_OBSCURED')
+        else:
+            print(x,y)
+    elif y>=screen_h-340:
         print('SCROLL_UP')
     elif y<=140:
         print('SCROLL_DOWN')
@@ -69,6 +83,10 @@ if items:
         print(x,y)
 PY
 )"
+    if [ "$coords" = "DIALOG_BUTTON_OBSCURED" ]; then
+      echo "QA Stage: diálogo Criar abaixo da área segura; abortando sem rolar nem tocar a navegação" >&2
+      exit 1
+    fi
     if [ "$coords" = "SCROLL_UP" ]; then
       echo "QA Stage: rolando para revelar controle abaixo da área segura: $label"
       adb shell input swipe 1045 1730 1045 770 260
