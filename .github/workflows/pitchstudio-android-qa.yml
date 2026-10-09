@@ -762,6 +762,8 @@ jobs:
           python3 "$PKGROOT/patch_v1136.py" "$SRC"
           cp "$PKGROOT/StageTempoAnalyzer.kt" "$SRC/app/src/main/java/br/com/timachado/pitchstudio/"
           cp "$PKGROOT/StageTempoAnalyzerTest.kt" "$SRC/app/src/test/java/br/com/timachado/pitchstudio/"
+          python3 .pitchstudio/v1136/fix_tests_v1136.py "$SRC"
+          grep -F 'kotlin.math.abs(estimate!!.bpm-bpm)<=3' "$SRC/app/src/test/java/br/com/timachado/pitchstudio/StageTempoAnalyzerTest.kt"
           grep -F 'versionName = "1.13.6"' "$SRC/app/build.gradle.kts"
           grep -F 'Analisar BPM' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/StageActivity.kt"
           grep -F 'Tap BPM' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/StageActivity.kt"
