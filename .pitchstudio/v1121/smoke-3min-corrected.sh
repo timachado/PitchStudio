@@ -530,6 +530,43 @@ floats=struct.unpack("<%df"%(len(head)//4),head)
 assert any(abs(x)>0.00001 for x in floats),"Playback gerado silencioso"
 print("PASSOU: playback completo PCM float estéreo, %.3f s (%d frames)"%(duration,frames))
 PY
+# Checagem de QUALIDADE: a voz estimada precisa coincidir temporalmente com
+# a mistura. A v1.12.9 passava em durações e falhava em áudio (2048 amostras).
+python3 - "$OUT/stems_test.f32" "$OUT/whole_playback.f32" <<'PY'
+import array,sys,math
+def load(path):
+    values=array.array("f")
+    with open(path,"rb") as f:values.frombytes(f.read())
+    if sys.byteorder!="little":values.byteswap()
+    assert len(values)%2==0
+    return values
+source=load(sys.argv[1]); playback=load(sys.argv[2])
+assert len(source)==len(playback)
+frames=len(source)//2
+# Música real de teste: 4s..17s; evitar silêncio/bordas da inferência.
+start=4*44100; end=min(frames-4096,17*44100)
+assert end>start
+stride=16
+s0=sDelayed=srcEnergy=removedEnergy=0.0
+for t in range(start,end,stride):
+    orig=(source[2*t]+source[2*t+1])*0.5
+    beat=(playback[2*t]+playback[2*t+1])*0.5
+    past=(source[2*(t-2048)]+source[2*(t-2048)+1])*0.5
+    removed=orig-beat
+    s0+=removed*orig
+    sDelayed+=removed*past
+    srcEnergy+=orig*orig
+    removedEnergy+=removed*removed
+normalizer=math.sqrt(srcEnergy*removedEnergy)+1e-12
+c0=s0/normalizer
+cDelayed=sDelayed/normalizer
+print(f"QA sincronismo vocal: corr_sem_atraso={c0:.4f}; corr_atrasada_2048={cDelayed:.4f}")
+assert removedEnergy>1e-5,"Motor devolveu vocal vazio."
+assert c0>cDelayed+0.08,(
+    f"FALHA: voz extraída continua atrasada 2048 amostras ({c0:.3f} vs {cDelayed:.3f})."
+)
+print("PASSOU: vazamento vocal não apresenta atraso de 2048 amostras.")
+PY
 # Resultados abaixo da dobra do aparelho: rolar até os botões reais.
 for down in 1 2 3 4; do
   adb shell input swipe 520 1800 520 650 220

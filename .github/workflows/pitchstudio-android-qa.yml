@@ -654,6 +654,18 @@ jobs:
           grep -F 'PlaybackResidualRefiner.strength' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/VocalStemSeparator.kt"
           grep -F 'secondNeuralPass' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/PlaybackResidualRefiner.kt" || grep -F 'Confidence gate for a SECOND neural pass' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/PlaybackResidualRefiner.kt"
 
+      - name: Corrigir sincronismo vocal +2048 amostras BEAT flow 1.13.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          python3 -m py_compile .pitchstudio/v1130/patch_v1130.py
+          python3 .pitchstudio/v1130/patch_v1130.py "$SRC"
+          grep -F 'versionName = "1.13.0"' "$SRC/app/build.gradle.kts"
+          grep -F 'val vocalsL = istft(inferred, 0, mixAlignment)' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/VocalStemSeparator.kt"
+          grep -F 'val nextL = istft(inferred, 0, HALF)' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/VocalStemSeparator.kt"
+          grep -F 'val vocalLeft = istft(inferred, 0)' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/VocalStemSeparator.kt"
+
       - name: Empacotar fontes de diagnóstico
         shell: bash
         run: |
@@ -678,16 +690,16 @@ jobs:
           test -f "$SRC/app/src/main/assets/UVR_MDXNET_9482.onnx"
           tar --exclude="*/build/*" --exclude="*/.gradle/*" \
             -C "$RUNNER_TEMP/pitchstudio-src" \
-            -czf "$RUNNER_TEMP/BEAT-flow-v1.12.9-AndroidStudio.tar.gz" PitchStudioAndroid
-          tar -tzf "$RUNNER_TEMP/BEAT-flow-v1.12.9-AndroidStudio.tar.gz" |
+            -czf "$RUNNER_TEMP/BEAT-flow-v1.13.0-AndroidStudio.tar.gz" PitchStudioAndroid
+          tar -tzf "$RUNNER_TEMP/BEAT-flow-v1.13.0-AndroidStudio.tar.gz" |
             grep -q "PitchStudioAndroid/app/build.gradle.kts"
-          ls -lh "$RUNNER_TEMP/BEAT-flow-v1.12.9-AndroidStudio.tar.gz"
+          ls -lh "$RUNNER_TEMP/BEAT-flow-v1.13.0-AndroidStudio.tar.gz"
 
       - name: Publicar projeto Android Studio
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.9-AndroidStudio-source
-          path: ${{ runner.temp }}/BEAT-flow-v1.12.9-AndroidStudio.tar.gz
+          name: BEAT-flow-v1.13.0-AndroidStudio-source
+          path: ${{ runner.temp }}/BEAT-flow-v1.13.0-AndroidStudio.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -740,7 +752,7 @@ jobs:
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.9-Playback3min-preview-apk
+          name: BEAT-flow-v1.13.0-Playback3min-preview-apk
           path: ${{ runner.temp }}/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
@@ -766,9 +778,9 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
-          TEST_APK="$RUNNER_TEMP/BEAT-flow-v1.12.9-arm64-unsigned.apk"
-          ALIGNED="$RUNNER_TEMP/BEAT-flow-v1.12.9-arm64-aligned.apk"
-          OUT="$RUNNER_TEMP/BEAT-flow-v1.12.9-arm64-preview.apk"
+          TEST_APK="$RUNNER_TEMP/BEAT-flow-v1.13.0-arm64-unsigned.apk"
+          ALIGNED="$RUNNER_TEMP/BEAT-flow-v1.13.0-arm64-aligned.apk"
+          OUT="$RUNNER_TEMP/BEAT-flow-v1.13.0-arm64-preview.apk"
           TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -f "$SRC"
           cp "$SRC" "$TEST_APK"
@@ -804,8 +816,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.9-Playback3min-ARM64-apk
-          path: ${{ runner.temp }}/BEAT-flow-v1.12.9-arm64-preview.apk
+          name: BEAT-flow-v1.13.0-Playback3min-ARM64-apk
+          path: ${{ runner.temp }}/BEAT-flow-v1.13.0-arm64-preview.apk
           if-no-files-found: warn
           retention-days: 7
 
@@ -813,7 +825,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.9-android-ui-smoke
+          name: BEAT-flow-v1.13.0-android-ui-smoke
           path: ${{ runner.temp }}/beatflow-wave-1121-smoke/
           if-no-files-found: warn
           retention-days: 7
