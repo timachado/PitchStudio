@@ -21,8 +21,38 @@ collect_evidence() {
 }
 trap 'status=$?; if [ "$status" -ne 0 ]; then collect_evidence; fi' EXIT
 refresh() {
-  adb shell uiautomator dump /sdcard/beatflow-stage.xml >/dev/null
-  adb exec-out cat /sdcard/beatflow-stage.xml > "$UI"
+  local overlay_attempt coords
+  for overlay_attempt in 1 2 3; do
+    adb shell uiautomator dump /sdcard/beatflow-stage.xml >/dev/null
+    adb exec-out cat /sdcard/beatflow-stage.xml > "$UI"
+    if ! grep -Eiq "Quickstep isn.t responding|Quickstep keeps stopping|System UI isn.t responding" "$UI"; then
+      return 0
+    fi
+    # ANR do launcher Android no emulador, não do BEAT flow. Preferir Wait
+    # a fechar processos; não tocar em botões desconhecidos.
+    echo "QA Stage: aviso do launcher Quickstep detectado; tentando aguardar"
+    coords="$(python3 - "$UI" <<'PY'
+import sys,re,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    if node.get("text","").strip().lower()=="wait":
+        b=list(map(int,re.findall(r'\d+',node.get("bounds",""))))
+        if len(b)==4 and b[0]<b[2] and b[1]<b[3]:
+            print((b[0]+b[2])//2,(b[1]+b[3])//2)
+            break
+PY
+)"
+    if [ -n "$coords" ]; then
+      adb shell input tap $coords
+    else
+      adb shell input keyevent KEYCODE_BACK
+    fi
+    sleep 2
+    adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity" >/dev/null 2>&1 || true
+    sleep 1
+  done
+  echo "QA Stage: launcher do emulador ainda bloqueia a interface após três tentativas." >&2
+  return 1
 }
 visible() {
   refresh
