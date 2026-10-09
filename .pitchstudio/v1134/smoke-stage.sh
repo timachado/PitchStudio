@@ -64,7 +64,7 @@ if items:
     nav_top=screen_h-132
     for node in root.iter('node'):
         if node.get('resource-id')=='android:id/navigationBarBackground':
-            nav=list(map(int,re.findall(r'\\d+',node.get('bounds',''))))
+            nav=list(map(int,re.findall(r'\d+',node.get('bounds',''))))
             if len(nav)==4: nav_top=nav[1]
             break
     if target=='Criar':
