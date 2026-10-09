@@ -156,7 +156,7 @@ root=ET.parse(sys.argv[1]).getroot()
 nodes=[n for n in root.iter('node') if n.get('class','').endswith('EditText') and n.get('enabled')=='true']
 if len(nodes)!=1:
     raise SystemExit('QA Stage: caixa de nome não encontrada ou ambígua no diálogo Novo repertório')
-bounds=list(map(int,re.findall(r'\\d+',nodes[0].get('bounds',''))))
+bounds=list(map(int,re.findall(r'\d+',nodes[0].get('bounds',''))))
 if len(bounds)!=4 or bounds[0]>=bounds[2] or bounds[1]>=bounds[3]:
     raise SystemExit('QA Stage: limites inválidos do campo de nome')
 print((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
