@@ -31,6 +31,20 @@ replace_once('''        reflowExpressiveUi()
         // Na tela Expressive vem logo após o card inicial; no fallback, abaixo
         // do subtítulo e acima de Modo Palco. Sem depender de 34 nós válidos.
         root.addView(libraryShortcuts, 2, full(wrap(), top = 10))
+        // Se a proteção estrutural do Expressive rejeitar a reorganização,
+        // manter também Tom Ideal e Separação IA acessíveis no layout básico.
+        if (root.getChildAt(1) !is MaterialCardView) {
+            val recoveryActions = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            recoveryActions.addView(
+                button("Tom Ideal · Analisar minha voz") { openTomIdeal() },
+                full(dp(52), top = 4))
+            recoveryActions.addView(
+                button("Separação com IA · Gerar playback") { openBeatSeparation() },
+                full(dp(52), top = 6))
+            root.addView(recoveryActions, 3, full(wrap(), top = 6))
+        }
         applyTheme()''')
 
 replace_once('''            if (kicker == "COMECE POR AQUI") {
