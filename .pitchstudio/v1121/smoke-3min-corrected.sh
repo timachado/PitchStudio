@@ -100,10 +100,37 @@ visible "Analisar minha voz"
 visible "Comparar voz e música"
 visible "Analisar trecho selecionado"
 # O novo botão pode ficar fora da dobra; tap() rola antes de tocar.
+# A mensagem de validação é atualizada em Comparar voz e música, acima
+# dos botões de separação vocal. Após o toque, pode estar fora da janela atual.
+# Percorrer apenas para cima e verificar o texto real evita falso negativo.
+visible_song_validation() {
+  local expected="$1"
+  for attempt in $(seq 1 9); do
+    readui
+    if python3 - "$OUT/current.xml" "$expected" <<'PY'
+import sys,xml.etree.ElementTree as ET
+try:
+    root=ET.parse(sys.argv[1]).getroot()
+    ok=any(sys.argv[2] in ((n.get("text") or "")+" "+(n.get("content-desc") or ""))
+           for n in root.iter("node"))
+except (OSError,ET.ParseError):
+    ok=False
+raise SystemExit(0 if ok else 1)
+PY
+    then
+      echo "PASSOU: mensagem de validação da música observada: $expected"
+      return 0
+    fi
+    adb shell input swipe 540 500 540 1600 240
+    sleep 0.45
+  done
+  echo "FALHA: não foi possível encontrar a mensagem após rolar para o topo: $expected" >&2
+  exit 1
+}
 tap "Isolar voz com IA"
-visible "Importe uma música"
+visible_song_validation "Importe uma música"
 tap "Analisar trecho selecionado"
-visible "Importe uma música"
+visible_song_validation "Importe uma música"
 # O novo card de IA desloca o microfone para cima na tela:
 # retornar ao topo antes de tentar tocar no botão.
 for up in 1 2 3 4 5; do adb shell input swipe 520 500 520 1550 230; done
