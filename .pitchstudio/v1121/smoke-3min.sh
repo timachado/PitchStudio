@@ -632,13 +632,58 @@ tap "Separação com IA"
 visible "Música inteira"
 tap "Processar música inteira"
 COMPLETE=0
+TESTFILE=""
 for attempt in $(seq 1 300); do
-  TESTFILE=$(adb shell run-as "$PKG" ls cache | grep -E '^beat_playback_.*\.f32$' | head -n1 || true)
-  if [ -n "$TESTFILE" ]; then
-    BYTES=$(adb shell run-as "$PKG" stat -c%s "cache/$TESTFILE" 2>/dev/null | tr -d '\r' || echo 0)
-    if [ "$BYTES" -eq 63504000 ]; then COMPLETE=1;break; fi
-    if [ "$BYTES" -gt 63504000 ]; then echo "FALHA: PCM instrumental tem tamanho maior que 180s: $BYTES bytes." >&2;exit 1;fi
+  # Pode haver um stem de 21s remanescente depois de uma parada forçada.
+  # Examinar TODOS os resultados, não apenas o primeiro nome do cache.
+  BYTES=0
+  for CANDIDATE in $(adb shell run-as "$PKG" ls cache | grep -E '^beat_playback_.*\.f32
+  if (( attempt % 12 == 0 )); then
+    echo "Diagnóstico 180s: tentativa $attempt/300; bytes=${BYTES:-0}; esperado=63504000."
+    adb shell dumpsys meminfo "$PKG" | grep -Ei "TOTAL PSS|TOTAL RSS" | tail -n 2 || true
+    readui
+    if grep -q "Falha:" "$OUT/current.xml"; then
+      echo "FALHA: separação longa exibiu um erro no app" >&2
+      grep -Eo 'text="[^"]{0,170}"' "$OUT/current.xml" | tail -n 25 || true
+      exit 1
+    fi
   fi
+  sleep 3
+done
+if [ "$COMPLETE" != 1 ]; then
+  echo "FALHA: processamento de 3 min não gerou áudio completo; coletando diagnóstico."
+  adb shell run-as "$PKG" ls -lh cache || true
+  adb shell input swipe 520 1800 520 600 250
+  readui
+  grep -Eo 'text="[^"]{0,180}"' "$OUT/current.xml" | tail -n 25 || true
+  adb logcat -d -s BEATflow-Separation:E AndroidRuntime:E | tail -n 100 || true
+  exit 1
+fi
+adb exec-out run-as "$PKG" cat "cache/$TESTFILE" > "$OUT/playback_180.f32"
+python3 - "$OUT/playback_180.f32" <<'PY'
+import os,sys,struct
+n=os.stat(sys.argv[1]).st_size
+assert n==180*44100*8,n
+with open(sys.argv[1],"rb") as f:v=struct.unpack("<200f",f.read(800))
+assert any(abs(x)>0.0001 for x in v),"Resultado instrumental silencioso"
+print("PASSOU: separação integral de 180 segundos, estéreo e sem truncamento.")
+PY
+adb shell dumpsys meminfo "$PKG" | grep -Ei 'TOTAL PSS|TOTAL RSS|TOTAL SWAP' | tail -n 3 || true
+
+if adb logcat -d -b crash -t 1500 | grep -E 'FATAL EXCEPTION|Process: br.com.timachado.beatflow.waveqa'; then
+ echo "FALHA: crash identificado no logcat" >&2
+ exit 1
+fi
+ || true); do
+    N=$(adb shell run-as "$PKG" stat -c%s "cache/$CANDIDATE" 2>/dev/null | tr -d '\r' || echo 0)
+    if [ "${N:-0}" -eq 63504000 ]; then TESTFILE="$CANDIDATE";COMPLETE=1;break;fi
+    if [ "${N:-0}" -gt "$BYTES" ]; then BYTES="$N";fi
+    if [ "${N:-0}" -gt 63504000 ]; then
+      echo "FALHA: stem ultrapassou 180s: $N bytes; arquivo $CANDIDATE" >&2
+      exit 1
+    fi
+  done
+  if [ "$COMPLETE" -eq 1 ]; then break;fi
   if (( attempt % 12 == 0 )); then
     echo "Diagnóstico 180s: tentativa $attempt/300; bytes=${BYTES:-0}; esperado=63504000."
     adb shell dumpsys meminfo "$PKG" | grep -Ei "TOTAL PSS|TOTAL RSS" | tail -n 2 || true
