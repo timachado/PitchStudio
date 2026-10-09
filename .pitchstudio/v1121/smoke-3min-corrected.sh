@@ -47,8 +47,10 @@ print("VISÍVEL:",wanted)
 PY
 }
 tap() {
-  # Alguns painéis ficam abaixo da dobra; procurar no conteúdo rolando até o fim.
-  for attempt in $(seq 1 48); do
+  # Procurar o controle com passos menores que a altura de um painel.
+  # Deslocamentos de ~1100 px saltavam o botão "Duração de isolamento"
+  # entre duas capturas consecutivas (evidência real do QA Android 15).
+  for attempt in $(seq 1 62); do
     readui
     if pos=$(python3 - "$OUT/current.xml" "$1" <<'PY'
 import sys,re
@@ -73,10 +75,10 @@ PY
       sleep 2
       return 0
     fi
-    if [ "$attempt" -le 12 ]; then
-      adb shell input swipe 500 500 500 1650 220
+    if [ "$attempt" -le 10 ]; then
+      adb shell input swipe 500 720 500 1360 230
     else
-      adb shell input swipe 500 1550 500 450 220
+      adb shell input swipe 500 1330 500 760 230
     fi
     sleep 0.4
   done
