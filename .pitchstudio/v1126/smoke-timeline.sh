@@ -5,6 +5,16 @@ source "$GITHUB_WORKSPACE/.pitchstudio/v1125/smoke-abc.sh" "$1"
 # Voltar ao editor ainda vinculado ao projeto de 180 s aberto no smoke legado.
 # O cartão está abaixo da dobra ao concluir A/B/C. tap() já rola até ele.
 tap "Marcar trecho"
+sleep 1
+readui
+# Em alguns tamanhos de tela, a caixa ainda está animando quando o próximo
+# toque ocorre. Não esconder falha real; tentar abrir uma segunda vez e validar.
+if ! grep -q 'text="Introdução"' "$OUT/current.xml"; then
+  echo "QA: lista de tipos ainda não apareceu; repetindo abertura do diálogo."
+  tap "Marcar trecho"
+  sleep 2
+  readui
+fi
 visible "Introdução"
 tap "Introdução"
 visible "1 trecho marcado"
