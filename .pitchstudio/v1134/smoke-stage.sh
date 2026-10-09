@@ -53,6 +53,20 @@ for i in 1 2 3 4 5 6 7; do
 done
 click_text "Modo Palco e Ensaio"
 visible "BEAT flow · Palco & Ensaio"
+# Conferir controles novos sem afetar biblioteca nem PCM.
+for scrollCount in 1 2 3 4 5 6; do
+  refresh
+  if grep -Fq 'Velocidade: Média' "$UI"; then break; fi
+  adb shell input swipe 500 1250 500 540 260
+  sleep 1
+done
+click_text "Velocidade: Média"
+visible "Velocidade: Rápida"
+click_text "Velocidade: Rápida"
+visible "Velocidade: Lenta"
+# Volta ao topo para trabalhar com os repertórios existentes.
+for scrollCount in 1 2 3 4 5 6; do adb shell input swipe 500 480 500 1400 180; done
+sleep 1
 click_text "Novo repertório"
 adb shell input text RepertorioQA
 click_text "Criar"
