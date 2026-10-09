@@ -48,7 +48,7 @@ PY
 }
 tap() {
   # Alguns painéis ficam abaixo da dobra; procurar no conteúdo rolando até o fim.
-  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  for attempt in $(seq 1 48); do
     readui
     if pos=$(python3 - "$OUT/current.xml" "$1" <<'PY'
 import sys,re
@@ -73,10 +73,14 @@ PY
       sleep 2
       return 0
     fi
-    adb shell input swipe 500 1400 500 600 250
-    sleep 1
+    if [ "$attempt" -le 12 ]; then
+      adb shell input swipe 500 500 500 1650 220
+    else
+      adb shell input swipe 500 1550 500 450 220
+    fi
+    sleep 0.4
   done
-  echo "Controle não localizado: $1"
+  echo "Controle não localizado (busca bidirecional): $1"
   exit 1
 }
 # A imagem do emulador às vezes apresenta ANR no Pixel Launcher.

@@ -20,37 +20,55 @@ if not any(n.get('text','')==sys.argv[2] for n in root.iter('node')):
 PY
 }
 click_text() {
-  local label="$1" coords
-  refresh
-  coords="$(python3 - "$UI" "$label" <<'PY'
+  local label="$1" coords="" attempt
+  # Primeiro testa o estado atual; depois procura acima e, por fim, abaixo.
+  for attempt in $(seq 0 44); do
+    refresh
+    coords="$(python3 - "$UI" "$label" <<'PY'
 import sys,xml.etree.ElementTree as ET,re
 root=ET.parse(sys.argv[1]).getroot()
+items=[]
 for e in root.iter('node'):
-    if e.get('text','')==sys.argv[2]:
-        b=e.get('bounds','')
-        a=list(map(int,re.findall(r'\d+',b)))
-        if len(a)==4:
-            print((a[0]+a[2])//2,(a[1]+a[3])//2)
-            break
+    text=e.get('text','')
+    desc=e.get('content-desc','')
+    target=sys.argv[2]
+    match=0 if text==target or desc==target else (1 if text.startswith(target) or desc.startswith(target) else 9)
+    if match==9:continue
+    bounds=list(map(int,re.findall(r'\d+',e.get('bounds',''))))
+    if len(bounds)!=4:continue
+    if bounds[2]<=bounds[0] or bounds[3]<=bounds[1]:continue
+    items.append((match,0 if e.get('clickable')=='true' else 1,bounds))
+if items:
+    items.sort(key=lambda it:it[:2])
+    a,b,c,d=items[0][2]
+    print((a+c)//2,(b+d)//2)
 PY
 )"
-  if [ -z "$coords" ]; then
-    echo "QA Stage: controle ausente: $label" >&2
-    exit 1
-  fi
-  adb shell input tap $coords
-  sleep 1
+    if [ -n "$coords" ]; then
+      echo "QA Stage: TOQUE: $label -> $coords"
+      adb shell input tap $coords
+      sleep 1
+      return 0
+    fi
+    if [ "$attempt" -lt 12 ]; then
+      adb shell input swipe 500 480 500 1700 220
+    else
+      adb shell input swipe 500 1600 500 470 220
+    fi
+    sleep 0.3
+  done
+  echo "QA Stage: controle ausente após busca bidirecional: $label" >&2
+  refresh || true
+  cp "$UI" "$TMP/fail.xml" || true
+  adb shell screencap -p /sdcard/beatflow-stage-fail.png || true
+  adb pull /sdcard/beatflow-stage-fail.png "$TMP/fail.png" >/dev/null 2>&1 || true
+  exit 1
 }
 adb install -r "$APK" >/dev/null
 adb shell am force-stop "$PKG" || true
 adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity" >/dev/null
 sleep 4
-for i in 1 2 3 4 5 6 7; do
-  refresh
-  if grep -Fq 'text="Modo Palco e Ensaio"' "$UI"; then break; fi
-  adb shell input swipe 500 1350 500 550 250
-  sleep 1
-done
+# click_text agora procura nas duas direções, inclusive ao restaurar a tela.
 click_text "Modo Palco e Ensaio"
 visible "BEAT flow · Palco & Ensaio"
 # Controle de acompanhamento deve aparecer e não pode travar sem música aberta.
