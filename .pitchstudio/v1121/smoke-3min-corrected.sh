@@ -47,7 +47,8 @@ print("VISÍVEL:",wanted)
 PY
 }
 tap() {
-  for attempt in 1 2 3 4; do
+  # Alguns painéis ficam abaixo da dobra; procurar no conteúdo rolando até o fim.
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
     readui
     if pos=$(python3 - "$OUT/current.xml" "$1" <<'PY'
 import sys,re

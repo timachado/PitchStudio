@@ -85,7 +85,7 @@ replace('''        column.addView(lyricButtons,full(top=7))
 replace('''        column.addView(lyrics,full(top=10))
         column.addView(text("Músicas do repertório"''','''        lyricsScroll=ScrollView(this).apply {
             isFillViewport=false
-            addView(lyrics,ScrollView.LayoutParams(-1,-2))
+            addView(lyrics,android.widget.FrameLayout.LayoutParams(-1,-2))
             contentDescription="Letra da música com rolagem manual ou automática"
         }
         column.addView(lyricsScroll,full(dp(270),top=10))
