@@ -5,6 +5,21 @@ PKG="br.com.timachado.beatflow.waveqa"
 TMP="${RUNNER_TEMP:-/tmp}/beatflow-stage-qa"
 mkdir -p "$TMP"
 UI="$TMP/window.xml"
+EVIDENCE="$RUNNER_TEMP/beatflow-wave-1121-smoke"
+mkdir -p "$EVIDENCE"
+collect_evidence() {
+  adb shell uiautomator dump /sdcard/beatflow-stage-diag.xml >/dev/null 2>&1 || true
+  adb exec-out cat /sdcard/beatflow-stage-diag.xml > "$EVIDENCE/stage-failure.xml" 2>/dev/null || true
+  adb shell screencap -p /sdcard/beatflow-stage-diag.png >/dev/null 2>&1 || true
+  adb pull /sdcard/beatflow-stage-diag.png "$EVIDENCE/stage-failure.png" >/dev/null 2>&1 || true
+  adb logcat -d -b main -b crash > "$EVIDENCE/stage-logcat.txt" 2>/dev/null || true
+  adb shell dumpsys activity activities > "$EVIDENCE/stage-activities.txt" 2>/dev/null || true
+  echo "QA Stage: ACTIVE TASK:"
+  grep -Ei 'topResumedActivity|mResumedActivity|Resumed: ActivityRecord' "$EVIDENCE/stage-activities.txt" | tail -3 || true
+  echo "QA Stage: POTENTIAL ERRORS:"
+  grep -Ei 'FATAL EXCEPTION|Estrutura Expressive inesperada|AndroidRuntime|IllegalStateException|NullPointerException' "$EVIDENCE/stage-logcat.txt" | tail -16 || true
+}
+trap 'status=$?; if [ "$status" -ne 0 ]; then collect_evidence; fi' EXIT
 refresh() {
   adb shell uiautomator dump /sdcard/beatflow-stage.xml >/dev/null
   adb exec-out cat /sdcard/beatflow-stage.xml > "$UI"
@@ -68,8 +83,16 @@ adb install -r "$APK" >/dev/null
 adb shell am force-stop "$PKG" || true
 adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity" >/dev/null
 sleep 4
-# Validar layout Material Expressive e Tom Ideal antes de testar Palco.
-visible "COMECE POR AQUI"
+# Testar abertura real do Tom Ideal, sem confundir scroll com funcionalidade.
+refresh
+echo "QA Stage: STARTUP VISIBLE LABELS:"
+python3 - "$UI" <<'PY'
+import sys, xml.etree.ElementTree as ET
+for node in ET.parse(sys.argv[1]).getroot().iter('node'):
+    t=node.get('text') or node.get('content-desc')
+    if t: print(' •', t[:95])
+PY
+echo "QA Stage: app process $(adb shell pidof "$PKG" || echo missing)"
 click_text "Tom Ideal · Analisar minha voz"
 visible "Analisar minha voz"
 adb shell input keyevent 4
