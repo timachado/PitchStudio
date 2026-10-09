@@ -53,6 +53,16 @@ for i in 1 2 3 4 5 6 7; do
 done
 click_text "Modo Palco e Ensaio"
 visible "BEAT flow · Palco & Ensaio"
+# Controle de acompanhamento deve aparecer e não pode travar sem música aberta.
+for scrollCount in 1 2 3 4 5 6 7; do
+  refresh
+  if grep -Fq 'Seguir cifras: desligado' "$UI"; then break; fi
+  adb shell input swipe 500 1250 500 550 220
+  sleep 1
+done
+visible "Seguir cifras: desligado"
+click_text "Seguir cifras: desligado"
+visible "Seguir cifras: desligado"
 # Conferir controles novos sem afetar biblioteca nem PCM.
 for scrollCount in 1 2 3 4 5 6; do
   refresh
