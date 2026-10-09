@@ -163,6 +163,19 @@ for node in ET.parse(sys.argv[1]).getroot().iter('node'):
     if t: print(' •', t[:95])
 PY
 echo "QA Stage: app process $(adb shell pidof "$PKG" || echo missing)"
+# Biblioteca deve abrir no layout Expressive e no fallback (vídeo de regressão).
+click_text "Biblioteca Inteligente"
+refresh
+python3 - "$UI" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+labels=[(n.get("text") or n.get("content-desc") or "") for n in root.iter("node")]
+if not any(t.startswith("Meus projetos") for t in labels):
+    raise SystemExit("QA Stage: botão Biblioteca Inteligente não abriu Meus projetos")
+print("PASSOU: Biblioteca Inteligente abre Meus projetos sem depender do reflow.")
+PY
+adb shell input keyevent KEYCODE_BACK
+sleep 0.5
 click_text "Tom Ideal · Analisar minha voz"
 visible "Analisar minha voz"
 adb shell input keyevent 4
