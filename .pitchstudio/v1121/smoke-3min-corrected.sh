@@ -204,7 +204,9 @@ tap "Tom Ideal"
 tap "Duração de isolamento: 6 s"
 tap "Duração de isolamento: 12 s"
 visible "Duração de isolamento: 18 s"
-visible "Cancelar isolamento"
+# O botão "Cancelar isolamento" só existe DURANTE a inferência;
+# antes de iniciar o motor, validar o botão de início (não o de cancelamento).
+visible "Isolar voz com IA"
 adb logcat -c || true
 tap "Isolar voz com IA"
 echo "Executando separação neural no Android sobre gravação vocal de referência…"
