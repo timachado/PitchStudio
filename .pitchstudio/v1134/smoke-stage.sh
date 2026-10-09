@@ -163,7 +163,10 @@ for node in ET.parse(sys.argv[1]).getroot().iter('node'):
     if t: print(' •', t[:95])
 PY
 echo "QA Stage: app process $(adb shell pidof "$PKG" || echo missing)"
-# Biblioteca deve abrir no layout Expressive e no fallback (vídeo de regressão).
+# Biblioteca e salvamento devem existir juntos, sem depender do reflow.
+# Conferir "Salvar projeto" antes de sair da tela inicial; é o atalho
+# necessário para que o Palco encontre músicas offline.
+visible "Salvar projeto"
 click_text "Biblioteca Inteligente"
 refresh
 python3 - "$UI" <<'PY'
