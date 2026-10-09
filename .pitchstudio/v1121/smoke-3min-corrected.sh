@@ -647,6 +647,17 @@ probe_cache() {
     if [ "$bytes" -gt "$EXPECTED_180" ]; then echo "FALHA: playback maior que 180s ($bytes)" >&2; exit 1; fi
     if [ "$bytes" -eq "$EXPECTED_180" ]; then TESTFILE="$candidate"; return 0; fi
   done < <(adb shell run-as "$PKG" ls -1 cache 2>/dev/null | tr -d '\r' || true)
+  # Alguns emuladores retornam tamanho correto em ls -l mas não em stat.
+  # Aceita apenas o candidato cujo arquivo TRANSFERIDO for validado no host.
+  while IFS= read -r row; do
+    candidate="${row##* }"
+    case "$candidate" in beat_playback_*.f32) ;; *) continue ;; esac
+    bytes=$(printf '%s\n' "$row" | awk '{print $5}')
+    if [ "${bytes:-0}" -eq "$EXPECTED_180" ] 2>/dev/null; then
+      TESTFILE="$candidate"
+      return 0
+    fi
+  done < <(adb shell run-as "$PKG" ls -l cache 2>/dev/null | tr -d '\r' || true)
   return 1
 }
 for attempt in $(seq 1 300); do

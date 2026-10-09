@@ -617,6 +617,19 @@ jobs:
           grep -F 'songSections' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/ProjectLibrary.kt"
           bash -n .pitchstudio/v1126/smoke-timeline.sh
 
+      - name: Melhorar remoção vocal do Playback BEAT flow 1.12.7
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          mkdir -p "$RUNNER_TEMP/beatflow-1127"
+          tar -xzf .pitchstudio/v1127/patch-v1127.tar.gz -C "$RUNNER_TEMP/beatflow-1127"
+          python3 -m py_compile "$RUNNER_TEMP/beatflow-1127/patch_v1127.py"
+          python3 "$RUNNER_TEMP/beatflow-1127/patch_v1127.py" "$SRC"
+          grep -F 'versionName = "1.12.7"' "$SRC/app/build.gradle.kts"
+          grep -F 'PlaybackVocalReducer.estimateGain' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/VocalStemSeparator.kt"
+          grep -F 'instrumental(' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/PlaybackVocalReducer.kt"
+
       - name: Empacotar fontes de diagnóstico
         shell: bash
         run: |
@@ -641,16 +654,16 @@ jobs:
           test -f "$SRC/app/src/main/assets/UVR_MDXNET_9482.onnx"
           tar --exclude="*/build/*" --exclude="*/.gradle/*" \
             -C "$RUNNER_TEMP/pitchstudio-src" \
-            -czf "$RUNNER_TEMP/BEAT-flow-v1.12.6-AndroidStudio.tar.gz" PitchStudioAndroid
-          tar -tzf "$RUNNER_TEMP/BEAT-flow-v1.12.6-AndroidStudio.tar.gz" |
+            -czf "$RUNNER_TEMP/BEAT-flow-v1.12.7-AndroidStudio.tar.gz" PitchStudioAndroid
+          tar -tzf "$RUNNER_TEMP/BEAT-flow-v1.12.7-AndroidStudio.tar.gz" |
             grep -q "PitchStudioAndroid/app/build.gradle.kts"
-          ls -lh "$RUNNER_TEMP/BEAT-flow-v1.12.6-AndroidStudio.tar.gz"
+          ls -lh "$RUNNER_TEMP/BEAT-flow-v1.12.7-AndroidStudio.tar.gz"
 
       - name: Publicar projeto Android Studio
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.6-AndroidStudio-source
-          path: ${{ runner.temp }}/BEAT-flow-v1.12.6-AndroidStudio.tar.gz
+          name: BEAT-flow-v1.12.7-AndroidStudio-source
+          path: ${{ runner.temp }}/BEAT-flow-v1.12.7-AndroidStudio.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -703,7 +716,7 @@ jobs:
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.6-Playback3min-preview-apk
+          name: BEAT-flow-v1.12.7-Playback3min-preview-apk
           path: ${{ runner.temp }}/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
@@ -729,9 +742,9 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
-          TEST_APK="$RUNNER_TEMP/BEAT-flow-v1.12.6-arm64-unsigned.apk"
-          ALIGNED="$RUNNER_TEMP/BEAT-flow-v1.12.6-arm64-aligned.apk"
-          OUT="$RUNNER_TEMP/BEAT-flow-v1.12.6-arm64-preview.apk"
+          TEST_APK="$RUNNER_TEMP/BEAT-flow-v1.12.7-arm64-unsigned.apk"
+          ALIGNED="$RUNNER_TEMP/BEAT-flow-v1.12.7-arm64-aligned.apk"
+          OUT="$RUNNER_TEMP/BEAT-flow-v1.12.7-arm64-preview.apk"
           TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -f "$SRC"
           cp "$SRC" "$TEST_APK"
@@ -767,8 +780,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.6-Playback3min-ARM64-apk
-          path: ${{ runner.temp }}/BEAT-flow-v1.12.6-arm64-preview.apk
+          name: BEAT-flow-v1.12.7-Playback3min-ARM64-apk
+          path: ${{ runner.temp }}/BEAT-flow-v1.12.7-arm64-preview.apk
           if-no-files-found: warn
           retention-days: 7
 
@@ -776,7 +789,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BEAT-flow-v1.12.6-android-ui-smoke
+          name: BEAT-flow-v1.12.7-android-ui-smoke
           path: ${{ runner.temp }}/beatflow-wave-1121-smoke/
           if-no-files-found: warn
           retention-days: 7
