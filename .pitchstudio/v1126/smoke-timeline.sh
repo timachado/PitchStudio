@@ -3,9 +3,7 @@ set -euo pipefail
 # Primeiro exercitar a regressão já aprovada de áudio/IA/exportação/ABC.
 source "$GITHUB_WORKSPACE/.pitchstudio/v1125/smoke-abc.sh" "$1"
 # Voltar ao editor ainda vinculado ao projeto de 180 s aberto no smoke legado.
-for _ in 1 2 3 4; do adb shell input swipe 500 510 500 1570 220; done
-sleep 2
-visible "Linha do Tempo Inteligente"
+# O cartão está abaixo da dobra ao concluir A/B/C. tap() já rola até ele.
 tap "Marcar trecho"
 visible "Introdução"
 tap "Introdução"
@@ -37,3 +35,25 @@ tap "Abrir e continuar"
 sleep 5
 visible "1 trecho marcado"
 echo "PASSOU: Linha do Tempo reaberta com marcação manual persistente."
+# Nova etapa: salvar uma automação por trecho e verificar os bytes reais do JSON.
+tap "Ver trechos"
+tap "Introdução"
+tap "Ajustar tom e velocidade"
+visible "Ajustes do trecho"
+tap "Salvar ajuste"
+adb exec-out run-as "$PKG" cat "files/saved_audio_projects/$ID_LONG/project.json" > "$OUT/section_overrides.json"
+python3 - "$OUT/section_overrides.json" <<'PY'
+import json,sys
+data=json.load(open(sys.argv[1],encoding="utf-8"))
+assert len(data["songSections"])==1
+items=data["sectionOverrides"]
+assert len(items)==1,items
+assert abs(items[0]["fraction"]-data["songSections"][0]["fraction"])<1e-6
+assert -12<=items[0]["semitones"]<=12
+assert .5<=items[0]["speed"]<=2.0
+print("PASSOU: ajuste por trecho persistido em JSON.")
+PY
+tap "▶ Prévia por trechos"
+visible "■ Encerrar prévia por trechos"
+tap "■ Encerrar prévia por trechos"
+echo "PASSOU: prévia de trecho liga e desliga sem alterar PCM."
