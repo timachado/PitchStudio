@@ -145,7 +145,7 @@ class BeatStemActivity : Activity() {
         choose=btn("Resultado: Playback"){changeStem()}
         choose.isEnabled=false;add(output,choose)
         preview=btn("▶ Ouvir prévia"){player.toggle()
-            preview.text=if(player.isPlaying)"❚❚ Pausar" else "▶ Ouvir prévia"}
+            preview.text=if(player.isPlaying())"❚❚ Pausar" else "▶ Ouvir prévia"}
         preview.isEnabled=false;add(output,preview)
         wav=btn("↓ Salvar WAV"){beginSave(false)}
         mp3=btn("↓ Salvar MP3 (320 kbps)"){beginSave(true)}
