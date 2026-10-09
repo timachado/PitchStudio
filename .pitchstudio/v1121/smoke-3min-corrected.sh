@@ -631,42 +631,76 @@ sleep 4
 tap "Separação com IA"
 visible "Música inteira"
 tap "Processar música inteira"
+# Auditoria independente: não confiar no texto da UI sem os bytes reais.
+EXPECTED_180=$((180*44100*2*4))
 COMPLETE=0
 TESTFILE=""
+COPIED=0
+probe_cache() {
+  local candidate bytes
+  while IFS= read -r candidate; do
+    candidate="${candidate//$'\r'/}"
+    case "$candidate" in beat_playback_*.f32) ;; *) continue ;; esac
+    bytes=$(adb shell run-as "$PKG" stat -c%s "cache/$candidate" 2>/dev/null | tr -cd '0-9' || true)
+    [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+    if [ "$bytes" -gt "${LARGEST:-0}" ]; then LARGEST="$bytes"; fi
+    if [ "$bytes" -gt "$EXPECTED_180" ]; then echo "FALHA: playback maior que 180s ($bytes)" >&2; exit 1; fi
+    if [ "$bytes" -eq "$EXPECTED_180" ]; then TESTFILE="$candidate"; return 0; fi
+  done < <(adb shell run-as "$PKG" ls -1 cache 2>/dev/null | tr -d '\r' || true)
+  return 1
+}
 for attempt in $(seq 1 300); do
   LARGEST=0
-  # Uma parada forçada pode deixar um arquivo antigo de 21 segundos.
-  # Avaliar todos os stems do cache; o resultado correto tem 63.504.000 bytes.
-  while IFS= read -r CANDIDATE; do
-    [ -n "$CANDIDATE" ] || continue
-    N=$(adb shell run-as "$PKG" stat -c%s "cache/$CANDIDATE" 2>/dev/null | tr -d "\r" || echo 0)
-    if [ "${N:-0}" -eq 63504000 ]; then TESTFILE="$CANDIDATE"; COMPLETE=1; break; fi
-    if [ "${N:-0}" -gt "$LARGEST" ]; then LARGEST="$N";fi
-    if [ "${N:-0}" -gt 63504000 ]; then echo "FALHA: resultado maior que 180 segundos: $N"; exit 1; fi
-  done < <(adb shell run-as "$PKG" ls cache | grep -E "^beat_playback_.*[.]f32$" || true)
-  if [ "$COMPLETE" -eq 1 ]; then break; fi
+  if probe_cache; then COMPLETE=1;break;fi
   if (( attempt % 12 == 0 )); then
-    echo "Processamento 180 s: verificação $attempt/300, maior arquivo ${LARGEST:-0} / 63504000 bytes."
+    echo "Processamento 180s: verificação $attempt/300, maior arquivo ${LARGEST:-0}/$EXPECTED_180 bytes."
     adb shell dumpsys meminfo "$PKG" | grep -Ei "TOTAL PSS|TOTAL RSS" | tail -n 2 || true
     readui
-    if grep -q "Falha:" "$OUT/current.xml"; then
+    if grep -q 'Falha:' "$OUT/current.xml"; then
       echo "FALHA: aplicativo mostrou erro durante o processamento." >&2
       grep -Eo 'text="[^"]{0,170}"' "$OUT/current.xml" | tail -n 25 || true
       exit 1
+    fi
+    if grep -qE 'Processado: 180[.,]0 s' "$OUT/current.xml"; then
+      echo "UI terminou 180s: conferindo cache via leitura binária (sem aceitar só o status)."
+      while IFS= read -r candidate; do
+        candidate="${candidate//$'\r'/}"
+        case "$candidate" in beat_playback_*.f32) ;; *) continue ;; esac
+        tmp="$OUT/probe-180.f32"
+        if adb exec-out run-as "$PKG" cat "cache/$candidate" > "$tmp" 2>/dev/null;then
+          bytes=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
+          echo "Auditoria binária: $candidate = $bytes bytes"
+          if [ "$bytes" -eq "$EXPECTED_180" ]; then
+            mv "$tmp" "$OUT/playback_180.f32"
+            TESTFILE="$candidate"
+            COPIED=1
+            COMPLETE=1
+            break
+          fi
+        fi
+        rm -f "$tmp"
+      done < <(adb shell run-as "$PKG" ls -1 cache 2>/dev/null | tr -d '\r' || true)
+      if [ "$COMPLETE" -eq 1 ]; then break; fi
     fi
   fi
   sleep 3
 done
 if [ "$COMPLETE" != 1 ]; then
-  echo "FALHA: processamento de 3 min não gerou áudio completo; coletando diagnóstico."
-  adb shell run-as "$PKG" ls -lh cache || true
+  echo "FALHA: nenhum arquivo PCM integral de 180s foi comprovado." >&2
+  adb shell run-as "$PKG" ls -l cache || true
   adb shell input swipe 520 1800 520 600 250
   readui
   grep -Eo 'text="[^"]{0,180}"' "$OUT/current.xml" | tail -n 25 || true
   adb logcat -d -s BEATflow-Separation:E AndroidRuntime:E | tail -n 100 || true
   exit 1
 fi
-adb exec-out run-as "$PKG" cat "cache/$TESTFILE" > "$OUT/playback_180.f32"
+if [ "$COPIED" -ne 1 ]; then
+  adb exec-out run-as "$PKG" cat "cache/$TESTFILE" > "$OUT/playback_180.f32"
+fi
+test "$(stat -c%s "$OUT/playback_180.f32")" -eq "$EXPECTED_180" || {
+  echo "FALHA: arquivo transferido não tem exatamente 180s." >&2
+  exit 1
+}
 python3 - "$OUT/playback_180.f32" <<'PY'
 import os,sys,struct
 n=os.stat(sys.argv[1]).st_size
