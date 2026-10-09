@@ -1,0 +1,147 @@
+
+    enum class StemMode { VOICE, PLAYBACK, BOTH }
+    data class Stems(val vocals: AudioProject?, val playback: AudioProject?)
+
+    /** MDX-Net completo em janelas, resultados streamados em f32 estéreo ou mono. */
+    fun separateStems(
+        context: Context, original: AudioProject, mode: StemMode,
+        previewSeconds: Int? = null, fraction: Double = 0.0,
+        progress: (Int) -> Unit = {}
+    ): Stems {
+        require(original.sampleRate in 8000..192000 && original.channels in 1..2)
+        require(original.frames > 0 && original.frames < Long.MAX_VALUE / (4L * original.channels))
+        require(original.pcmFile.isFile &&
+            original.pcmFile.length() == original.frames * original.channels * 4L)
+        require(previewSeconds == null || previewSeconds in VocalChunkPlan.OPTIONS_SECONDS)
+        val available = (original.frames.toDouble() * RATE / original.sampleRate)
+            .roundToLong().coerceAtLeast(1)
+        val totalLong = if (previewSeconds == null) available
+            else min(available, previewSeconds.toLong() * RATE)
+        require(totalLong in 1..Int.MAX_VALUE.toLong()) {
+            "Duração acima da capacidade do motor de separação."
+        }
+        val total = totalLong.toInt()
+        val startSource = if (previewSeconds == null) 0L else {
+            val span = kotlin.math.ceil(totalLong.toDouble() * original.sampleRate / RATE).toLong()
+            ((original.frames - span).coerceAtLeast(0L) * fraction.coerceIn(0.0, 1.0)).toLong()
+        }
+        val vocalFile = if (mode != StemMode.PLAYBACK)
+            File.createTempFile("beat_voice_", ".f32", context.cacheDir) else null
+        val beatFile = if (mode != StemMode.VOICE)
+            File.createTempFile("beat_playback_", ".f32", context.cacheDir) else null
+        val channels = original.channels
+        val voiceWave = FloatArray(120)
+        val beatWave = FloatArray(120)
+        var voicePeak = 0f
+        var beatPeak = 0f
+        try {
+            val packed = ByteBuffer.allocateDirect(TENSOR_FLOATS * 4).order(ByteOrder.nativeOrder())
+            val inferred = ByteBuffer.allocateDirect(TENSOR_FLOATS * 4).order(ByteOrder.nativeOrder())
+            val pendingL = FloatArray(VocalChunkPlan.OVERLAP_FRAMES)
+            val pendingR = FloatArray(VocalChunkPlan.OVERLAP_FRAMES)
+            val voiceBuffer = ByteBuffer.allocate(64 * 1024).order(ByteOrder.LITTLE_ENDIAN)
+            val beatBuffer = ByteBuffer.allocate(64 * 1024).order(ByteOrder.LITTLE_ENDIAN)
+            val voiceOut = vocalFile?.outputStream()?.buffered(64 * 1024)
+            val beatOut = beatFile?.outputStream()?.buffered(64 * 1024)
+            try {
+                fun append(buf: ByteBuffer, stream: java.io.OutputStream?, sample: Float) {
+                    if (stream == null) return
+                    if (buf.remaining() < 4) {
+                        stream.write(buf.array(), 0, buf.position())
+                        buf.clear()
+                    }
+                    buf.putFloat(sample)
+                }
+                val env = OrtEnvironment.getEnvironment()
+                val model = cacheModel(context)
+                OrtSession.SessionOptions().use { opts ->
+                    opts.setIntraOpNumThreads(2)
+                    env.createSession(model.absolutePath, opts).use { session ->
+                        val shape = longArrayOf(1, 4, HALF.toLong(), FRAMES.toLong())
+                        val name = session.inputNames.first()
+                        var offset = 0
+                        while (offset < total) {
+                            if (Thread.currentThread().isInterrupted)
+                                throw java.io.InterruptedIOException("Separação cancelada.")
+                            val amount = min(USABLE, total - offset)
+                            val last = offset.toLong() + USABLE >= totalLong
+                            val emit = if (last) amount else VocalChunkPlan.STEP_FRAMES
+                            val (left, right) = readResampled(original, startSource, offset)
+                            packed.clear(); inferred.clear()
+                            stft(left, packed, 0); stft(right, packed, 2)
+                            packed.rewind()
+                            OnnxTensor.createTensor(env, packed.asFloatBuffer(), shape).use { tensor ->
+                                session.run(mapOf(name to tensor)).use { results ->
+                                    val floats = (results[0] as OnnxTensor).floatBuffer
+                                    require(floats.remaining() == TENSOR_FLOATS)
+                                    while (floats.hasRemaining()) inferred.putFloat(floats.get())
+                                }
+                            }
+                            if (Thread.currentThread().isInterrupted)
+                                throw java.io.InterruptedIOException("Separação cancelada.")
+                            val vocalsL = istft(inferred, 0)
+                            val vocalsR = istft(inferred, 2)
+                            for (i in 0 until amount) {
+                                if ((i and 8191) == 0 && Thread.currentThread().isInterrupted)
+                                    throw java.io.InterruptedIOException("Separação cancelada.")
+                                val w = if (offset > 0 && i < pendingL.size)
+                                    (i + 1f) / (pendingL.size + 1f) else 1f
+                                val vL = (if (w < 1f) pendingL[i] * (1f-w) + vocalsL[i] * w
+                                    else vocalsL[i]).takeIf { it.isFinite() } ?: 0f
+                                val vR = (if (w < 1f) pendingR[i] * (1f-w) + vocalsR[i] * w
+                                    else vocalsR[i]).takeIf { it.isFinite() } ?: 0f
+                                if (i >= emit) {
+                                    pendingL[i-emit] = vL
+                                    pendingR[i-emit] = vR
+                                    continue
+                                }
+                                val mono = channels == 1
+                                val v0 = (if (mono) (vL+vR)*0.5f else vL).coerceIn(-1f,1f)
+                                val v1 = vR.coerceIn(-1f,1f)
+                                val b0 = (left[i+FFT_SIZE] - v0).coerceIn(-1f,1f)
+                                val b1 = (right[i+FFT_SIZE] - v1).coerceIn(-1f,1f)
+                                val slot = min(119, ((offset.toLong()+i)*120L/totalLong).toInt())
+                                if (voiceOut != null) {
+                                    append(voiceBuffer,voiceOut,v0)
+                                    if (!mono) append(voiceBuffer,voiceOut,v1)
+                                    val v = max(kotlin.math.abs(v0),if(mono) 0f else kotlin.math.abs(v1))
+                                    voicePeak = max(voicePeak,v)
+                                    voiceWave[slot] = max(voiceWave[slot],v)
+                                }
+                                if (beatOut != null) {
+                                    append(beatBuffer,beatOut,b0)
+                                    if (!mono) append(beatBuffer,beatOut,b1)
+                                    val v = max(kotlin.math.abs(b0),if(mono) 0f else kotlin.math.abs(b1))
+                                    beatPeak = max(beatPeak,v)
+                                    beatWave[slot] = max(beatWave[slot],v)
+                                }
+                            }
+                            offset += emit
+                            progress((offset.toLong()*100L/totalLong).toInt().coerceIn(0,100))
+                        }
+                    }
+                }
+                voiceOut?.write(voiceBuffer.array(),0,voiceBuffer.position())
+                beatOut?.write(beatBuffer.array(),0,beatBuffer.position())
+                voiceOut?.flush();beatOut?.flush()
+            } finally {
+                voiceOut?.close()
+                beatOut?.close()
+            }
+            if (Thread.currentThread().isInterrupted)
+                throw java.io.InterruptedIOException("Separação cancelada.")
+            val expected = totalLong*channels*4L
+            check(vocalFile == null || vocalFile.length() == expected) {"Voz incompleta."}
+            check(beatFile == null || beatFile.length() == expected) {"Instrumental incompleto."}
+            return Stems(
+                vocalFile?.let { AudioProject("Voz • " + original.name,
+                    it,RATE,channels,totalLong,voicePeak,voiceWave) },
+                beatFile?.let { AudioProject("Playback • " + original.name,
+                    it,RATE,channels,totalLong,beatPeak,beatWave) }
+            )
+        } catch (error: Throwable) {
+            vocalFile?.delete()
+            beatFile?.delete()
+            throw error
+        }
+    }
