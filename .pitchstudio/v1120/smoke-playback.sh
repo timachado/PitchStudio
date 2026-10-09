@@ -530,6 +530,10 @@ floats=struct.unpack("<%df"%(len(head)//4),head)
 assert any(abs(x)>0.00001 for x in floats),"Playback gerado silencioso"
 print("PASSOU: playback completo PCM float estéreo, %.3f s (%d frames)"%(duration,frames))
 PY
+# Resultados abaixo da dobra do aparelho: rolar até os botões reais.
+for down in 1 2 3 4; do
+  adb shell input swipe 520 1800 520 650 220
+done
 visible "Salvar WAV"
 visible "Salvar MP3"
 echo "PASSOU: playback da faixa inteira com exportação WAV/MP3 disponível."
