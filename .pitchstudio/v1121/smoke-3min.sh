@@ -632,11 +632,22 @@ tap "Separação com IA"
 visible "Música inteira"
 tap "Processar música inteira"
 COMPLETE=0
-for attempt in $(seq 1 125); do
+for attempt in $(seq 1 300); do
   TESTFILE=$(adb shell run-as "$PKG" ls cache | grep -E '^beat_playback_.*\.f32$' | head -n1 || true)
   if [ -n "$TESTFILE" ]; then
     BYTES=$(adb shell run-as "$PKG" stat -c%s "cache/$TESTFILE" 2>/dev/null | tr -d '\r' || echo 0)
     if [ "$BYTES" -eq 63504000 ]; then COMPLETE=1;break; fi
+    if [ "$BYTES" -gt 63504000 ]; then echo "FALHA: PCM instrumental tem tamanho maior que 180s: $BYTES bytes." >&2;exit 1;fi
+  fi
+  if (( attempt % 12 == 0 )); then
+    echo "Diagnóstico 180s: tentativa $attempt/300; bytes=${BYTES:-0}; esperado=63504000."
+    adb shell dumpsys meminfo "$PKG" | grep -Ei "TOTAL PSS|TOTAL RSS" | tail -n 2 || true
+    readui
+    if grep -q "Falha:" "$OUT/current.xml"; then
+      echo "FALHA: separação longa exibiu um erro no app" >&2
+      grep -Eo 'text="[^"]{0,170}"' "$OUT/current.xml" | tail -n 25 || true
+      exit 1
+    fi
   fi
   sleep 3
 done
