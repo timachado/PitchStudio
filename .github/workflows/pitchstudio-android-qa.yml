@@ -551,7 +551,7 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
-          bash -n .pitchstudio/v1121/smoke-3min.sh
+          bash -n .pitchstudio/v1121/smoke-3min-corrected.sh
           python3 -m py_compile .pitchstudio/v1121/patch_v1121.py
           python3 .pitchstudio/v1121/patch_v1121.py "$SRC"
           grep -F 'versionName = "1.12.1"' "$SRC/app/build.gradle.kts"
@@ -660,7 +660,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           disable-animations: true
-          script: bash "$GITHUB_WORKSPACE/.pitchstudio/v1121/smoke-3min.sh" "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
+          script: bash "$GITHUB_WORKSPACE/.pitchstudio/v1121/smoke-3min-corrected.sh" "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
 
       - name: Criar APK ARM64 otimizado
         if: always()
