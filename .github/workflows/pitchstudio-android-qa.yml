@@ -601,6 +601,9 @@ jobs:
           grep -F 'versionName = "1.12.5"' "$SRC/app/build.gradle.kts"
           grep -F 'Comparar A/B/C' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
           grep -F 'player.setPreviewParams(pitch,selection.tempo.toFloat())' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
+          python3 -m py_compile .pitchstudio/v1125/patch_teardown_v1125.py
+          python3 .pitchstudio/v1125/patch_teardown_v1125.py "$SRC"
+          grep -F 'player.pause()' "$SRC/app/src/main/java/br/com/timachado/pitchstudio/MainActivity.kt"
 
       - name: Empacotar fontes de diagnóstico
         shell: bash
@@ -706,7 +709,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           disable-animations: true
-          script: bash "$GITHUB_WORKSPACE/.pitchstudio/v1121/smoke-3min-corrected.sh" "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
+          script: bash "$GITHUB_WORKSPACE/.pitchstudio/v1125/smoke-abc.sh" "$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid/app/build/outputs/apk/debug/app-debug.apk"
 
       - name: Criar APK ARM64 otimizado
         if: always()
