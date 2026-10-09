@@ -540,6 +540,7 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/pitchstudio-src/PitchStudioAndroid"
+          bash -n .pitchstudio/v1120/smoke-playback.sh
           python3 -m py_compile .pitchstudio/v1120/patch_v1120.py
           python3 .pitchstudio/v1120/patch_v1120.py "$SRC"
           grep -F 'versionName = "1.12.0"' "$SRC/app/build.gradle.kts"
