@@ -12,6 +12,12 @@ on:
 permissions:
   contents: read
 
+# Evita disputar emuladores/recursos entre commits consecutivos da mesma branch.
+# Conserva execuções de branches diferentes e mantém apenas a revisão atual em QA.
+concurrency:
+  group: beatflow-android-qa-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
