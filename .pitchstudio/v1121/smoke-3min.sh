@@ -640,7 +640,15 @@ for attempt in $(seq 1 125); do
   fi
   sleep 3
 done
-test "$COMPLETE" = 1 || { echo "FALHA: playback integral 3min incompleto.";exit 1; }
+if [ "$COMPLETE" != 1 ]; then
+  echo "FALHA: processamento de 3 min não gerou áudio completo; coletando diagnóstico."
+  adb shell run-as "$PKG" ls -lh cache || true
+  adb shell input swipe 520 1800 520 600 250
+  readui
+  grep -Eo 'text="[^"]{0,180}"' "$OUT/current.xml" | tail -n 25 || true
+  adb logcat -d -s BEATflow-Separation:E AndroidRuntime:E | tail -n 100 || true
+  exit 1
+fi
 adb exec-out run-as "$PKG" cat "cache/$TESTFILE" > "$OUT/playback_180.f32"
 python3 - "$OUT/playback_180.f32" <<'PY'
 import os,sys,struct
