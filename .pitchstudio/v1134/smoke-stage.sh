@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+set -euo pipefail
+APK="$1"
+PKG="br.com.timachado.beatflow.waveqa"
+TMP="${RUNNER_TEMP:-/tmp}/beatflow-stage-qa"
+mkdir -p "$TMP"
+UI="$TMP/window.xml"
+EVIDENCE="$RUNNER_TEMP/beatflow-wave-1121-smoke"
+mkdir -p "$EVIDENCE"
+collect_evidence() {
+  adb shell uiautomator dump /sdcard/beatflow-stage-diag.xml >/dev/null 2>&1 || true
+  adb exec-out cat /sdcard/beatflow-stage-diag.xml > "$EVIDENCE/stage-failure.xml" 2>/dev/null || true
+  adb shell screencap -p /sdcard/beatflow-stage-diag.png >/dev/null 2>&1 || true
+  adb pull /sdcard/beatflow-stage-diag.png "$EVIDENCE/stage-failure.png" >/dev/null 2>&1 || true
+  adb logcat -d -b main -b crash > "$EVIDENCE/stage-logcat.txt" 2>/dev/null || true
+  adb shell dumpsys activity activities > "$EVIDENCE/stage-activities.txt" 2>/dev/null || true
+  echo "QA Stage: ACTIVE TASK:"
+  grep -Ei 'topResumedActivity|mResumedActivity|Resumed: ActivityRecord' "$EVIDENCE/stage-activities.txt" | tail -3 || true
+  echo "QA Stage: POTENTIAL ERRORS:"
+  grep -Ei 'FATAL EXCEPTION|Estrutura Expressive inesperada|AndroidRuntime|IllegalStateException|NullPointerException' "$EVIDENCE/stage-logcat.txt" | tail -16 || true
+}
+trap 'status=$?; if [ "$status" -ne 0 ]; then collect_evidence; fi' EXIT
+refresh() {
+  local overlay_attempt coords
+  for overlay_attempt in 1 2 3; do
+    adb shell uiautomator dump /sdcard/beatflow-stage.xml >/dev/null
+    adb exec-out cat /sdcard/beatflow-stage.xml > "$UI"
+    if ! grep -Eiq "Quickstep isn.t responding|Quickstep keeps stopping|System UI isn.t responding" "$UI"; then
+      return 0
+    fi
+    # ANR do launcher Android no emulador, não do BEAT flow. Preferir Wait
+    # a fechar processos; não tocar em botões desconhecidos.
+    echo "QA Stage: aviso do launcher Quickstep detectado; tentando aguardar"
+    coords="$(python3 - "$UI" <<'PY'
+import sys,re,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    if node.get("text","").strip().lower()=="wait":
+        b=list(map(int,re.findall(r'\d+',node.get("bounds",""))))
+        if len(b)==4 and b[0]<b[2] and b[1]<b[3]:
+            print((b[0]+b[2])//2,(b[1]+b[3])//2)
+            break
+PY
+)"
+    if [ -n "$coords" ]; then
+      adb shell input tap $coords
+    else
+      adb shell input keyevent KEYCODE_BACK
+    fi
+    sleep 2
+    adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity" >/dev/null 2>&1 || true
+    sleep 1
+  done
+  echo "QA Stage: launcher do emulador ainda bloqueia a interface após três tentativas." >&2
+  return 1
+}
+visible() {
+  refresh
+  python3 - "$UI" "$1" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+if not any(n.get('text','')==sys.argv[2] for n in root.iter('node')):
+    print('QA Stage: rótulo não visível:',repr(sys.argv[2]),file=sys.stderr)
+    raise SystemExit(1)
+PY
+}
+click_text() {
+  local label="$1" coords="" attempt
+  # Primeiro testa o estado atual; depois procura acima e, por fim, abaixo.
+  for attempt in $(seq 0 44); do
+    refresh
+    coords="$(python3 - "$UI" "$label" <<'PY'
+import sys,xml.etree.ElementTree as ET,re
+root=ET.parse(sys.argv[1]).getroot()
+items=[]
+for e in root.iter('node'):
+    text=e.get('text','')
+    desc=e.get('content-desc','')
+    target=sys.argv[2]
+    match=0 if text==target or desc==target else (1 if text.startswith(target) or desc.startswith(target) else 9)
+    if match==9:continue
+    bounds=list(map(int,re.findall(r'\d+',e.get('bounds',''))))
+    if len(bounds)!=4:continue
+    if bounds[2]<=bounds[0] or bounds[3]<=bounds[1]:continue
+    items.append((match,0 if e.get('clickable')=='true' else 1,bounds))
+if items:
+    items.sort(key=lambda it:it[:2])
+    a,b,c,d=items[0][2]
+    # Nem todo nó presente no XML está tocável: nunca enviar tap à
+    # barra de gestos do Android (bug real do antigo smoke em y=2304).
+    screen=list(map(int,re.findall(r'\d+',root.find('node').get('bounds',''))))
+    screen_h=screen[3] if len(screen)==4 else 2340
+    x,y=(a+c)//2,(b+d)//2
+    nav_top=screen_h-132
+    for node in root.iter('node'):
+        if node.get('resource-id')=='android:id/navigationBarBackground':
+            nav=list(map(int,re.findall(r'\d+',node.get('bounds',''))))
+            if len(nav)==4: nav_top=nav[1]
+            break
+    if target=='Criar':
+        # Botão de AlertDialog, não de ScrollView: rolar atrás do modal fecha
+        # o diálogo e dá falso negativo. Permitir y perto do rodapé apenas
+        # enquanto estiver fora da área real de navegação do sistema.
+        if y>=nav_top-12:
+            print('DIALOG_BUTTON_OBSCURED')
+        else:
+            print(x,y)
+    elif y>=screen_h-340:
+        print('SCROLL_UP')
+    elif y<=140:
+        print('SCROLL_DOWN')
+    else:
+        print(x,y)
+PY
+)"
+    if [ "$coords" = "DIALOG_BUTTON_OBSCURED" ]; then
+      echo "QA Stage: diálogo Criar abaixo da área segura; abortando sem rolar nem tocar a navegação" >&2
+      exit 1
+    fi
+    if [ "$coords" = "SCROLL_UP" ]; then
+      echo "QA Stage: rolando para revelar controle abaixo da área segura: $label"
+      adb shell input swipe 1045 1730 1045 770 260
+      sleep 0.45
+      continue
+    fi
+    if [ "$coords" = "SCROLL_DOWN" ]; then
+      echo "QA Stage: rolando para revelar controle acima da área segura: $label"
+      adb shell input swipe 1045 760 1045 1750 260
+      sleep 0.45
+      continue
+    fi
+    if [ -n "$coords" ]; then
+      echo "QA Stage: TOQUE: $label -> $coords"
+      adb shell input tap $coords
+      sleep 1
+      return 0
+    fi
+    if [ "$attempt" -lt 12 ]; then
+      adb shell input swipe 500 480 500 1700 220
+    else
+      adb shell input swipe 500 1600 500 470 220
+    fi
+    sleep 0.3
+  done
+  echo "QA Stage: controle ausente após busca bidirecional: $label" >&2
+  refresh || true
+  cp "$UI" "$TMP/fail.xml" || true
+  adb shell screencap -p /sdcard/beatflow-stage-fail.png || true
+  adb pull /sdcard/beatflow-stage-fail.png "$TMP/fail.png" >/dev/null 2>&1 || true
+  exit 1
+}
+adb install -r "$APK" >/dev/null
+adb shell am force-stop "$PKG" || true
+adb shell am start -W -n "$PKG/br.com.timachado.pitchstudio.MainActivity" >/dev/null
+sleep 4
+# Testar abertura real do Tom Ideal, sem confundir scroll com funcionalidade.
+refresh
+echo "QA Stage: STARTUP VISIBLE LABELS:"
+python3 - "$UI" <<'PY'
+import sys, xml.etree.ElementTree as ET
+for node in ET.parse(sys.argv[1]).getroot().iter('node'):
+    t=node.get('text') or node.get('content-desc')
+    if t: print(' •', t[:95])
+PY
+echo "QA Stage: app process $(adb shell pidof "$PKG" || echo missing)"
+# Biblioteca e salvamento devem existir juntos, sem depender do reflow.
+# Conferir "Salvar projeto" antes de sair da tela inicial; é o atalho
+# necessário para que o Palco encontre músicas offline.
+visible "Salvar projeto"
+click_text "Biblioteca Inteligente"
+refresh
+python3 - "$UI" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+labels=[(n.get("text") or n.get("content-desc") or "") for n in root.iter("node")]
+if not any(t.startswith("Meus projetos") for t in labels):
+    raise SystemExit("QA Stage: botão Biblioteca Inteligente não abriu Meus projetos")
+print("PASSOU: Biblioteca Inteligente abre Meus projetos sem depender do reflow.")
+PY
+adb shell input keyevent KEYCODE_BACK
+sleep 0.5
+click_text "Tom Ideal · Analisar minha voz"
+visible "Analisar minha voz"
+adb shell input keyevent 4
+sleep 2
+click_text "Modo Palco e Ensaio"
+visible "BEAT flow · Palco & Ensaio"
+# Controle de acompanhamento deve aparecer e não pode travar sem música aberta.
+for scrollCount in 1 2 3 4 5 6 7; do
+  refresh
+  if grep -Fq 'Seguir cifras: desligado' "$UI"; then break; fi
+  adb shell input swipe 500 1250 500 550 220
+  sleep 1
+done
+visible "Seguir cifras: desligado"
+click_text "Seguir cifras: desligado"
+visible "Seguir cifras: desligado"
+# Conferir controles novos sem afetar biblioteca nem PCM.
+for scrollCount in 1 2 3 4 5 6; do
+  refresh
+  if grep -Fq 'Velocidade: Média' "$UI"; then break; fi
+  adb shell input swipe 500 1250 500 540 260
+  sleep 1
+done
+click_text "Velocidade: Média"
+visible "Velocidade: Rápida"
+click_text "Velocidade: Rápida"
+visible "Velocidade: Lenta"
+# Volta ao topo para trabalhar com os repertórios existentes.
+for scrollCount in 1 2 3 4 5 6; do adb shell input swipe 500 480 500 1400 180; done
+sleep 1
+click_text "Novo repertório"
+# A caixa de texto de um MaterialAlertDialog não recebe foco garantido.
+# Clicar nela antes de digitar impede que o comando input text vá para a tela
+# anterior; fechar primeiro o teclado evita o botão Criar sob a área de gestos.
+refresh
+name_bounds="$(python3 - "$UI" <<'PY'
+import re,sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+nodes=[n for n in root.iter('node') if n.get('class','').endswith('EditText') and n.get('enabled')=='true']
+if len(nodes)!=1:
+    raise SystemExit('QA Stage: caixa de nome não encontrada ou ambígua no diálogo Novo repertório')
+bounds=list(map(int,re.findall(r'\d+',nodes[0].get('bounds',''))))
+if len(bounds)!=4 or bounds[0]>=bounds[2] or bounds[1]>=bounds[3]:
+    raise SystemExit('QA Stage: limites inválidos do campo de nome')
+print((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)
+PY
+)"
+adb shell input tap $name_bounds
+adb shell input text RepertorioQA
+sleep 0.5
+refresh
+python3 - "$UI" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+fields=[n for n in root.iter('node') if n.get('class','').endswith('EditText')]
+if len(fields)!=1 or fields[0].get('text')!='RepertorioQA':
+    raise SystemExit('QA Stage: nome do repertório não foi digitado no campo esperado')
+PY
+# O toque no EditText abriu o IME. Primeiro fechá-lo, depois localizar Criar.
+# Não rolar a tela de fundo enquanto o diálogo modal está aberto.
+adb shell input keyevent KEYCODE_BACK
+sleep 0.7
+visible "Criar"
+click_text "Criar"
+visible "RepertorioQA · 0 músicas"
+adb exec-out run-as "$PKG" cat files/stage_setlists.json > "$TMP/repertorios.json"
+python3 - "$TMP/repertorios.json" <<'PY'
+import sys,json
+v=json.load(open(sys.argv[1],encoding='utf-8'))
+assert v['schema']==1
+assert len(v['setlists'])==1
+s=v['setlists'][0]
+assert s['title']=='RepertorioQA' and s['songs']==[]
+print('PASSOU: repertório offline salvo sem copiar áudio.')
+PY
+# Teste E2E: adicionar faixa salva, conferir seleção automática, habilitação
+# do player e persistência do ID único (sem duplicar o áudio original).
+STAGE_SONG_ID="135e4567-e89b-12d3-a456-426614174143"
+python3 - "$TMP" <<'PY'
+from pathlib import Path
+from array import array
+import json,sys,math,time
+out=Path(sys.argv[1]); rate=44100; frames=rate*2
+pcm=array("f",(0.08*math.sin(2*math.pi*220*i/rate)
+                for i in range(frames) for channel in range(2)))
+with (out/"stage-song.f32").open("wb") as f: pcm.tofile(f)
+meta={"schema":1,"title":"Teste Palco QA","updatedAt":int(time.time()*1000),
+      "sampleRate":rate,"channels":2,"frames":frames,"peak":0.08,
+      "waveform":[0.08]*80,"semitones":0,"cents":0,"speed":1.0,
+      "quality":"ALTA","position":0.0}
+(out/"stage-song.json").write_text(json.dumps(meta),encoding="utf-8")
+PY
+adb push "$TMP/stage-song.f32" /data/local/tmp/stage-song.f32 >/dev/null
+adb push "$TMP/stage-song.json" /data/local/tmp/stage-song.json >/dev/null
+adb shell run-as "$PKG" mkdir -p "files/saved_audio_projects/$STAGE_SONG_ID"
+adb shell run-as "$PKG" cp /data/local/tmp/stage-song.f32 "files/saved_audio_projects/$STAGE_SONG_ID/original.f32"
+adb shell run-as "$PKG" cp /data/local/tmp/stage-song.json "files/saved_audio_projects/$STAGE_SONG_ID/project.json"
+click_text "Adicionar música"
+visible "Teste Palco QA"
+click_text "Teste Palco QA"
+visible "RepertorioQA · 1 músicas"
+visible "Música adicionada e selecionada: Teste Palco QA"
+refresh
+python3 - "$UI" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+buttons=[e for e in root.iter("node")
+         if e.get("text","").strip() in ("▶ Reproduzir","Ⅱ Pausar")]
+assert len(buttons)==1 and buttons[0].get("enabled")=="true", \
+    "QA Stage: player não habilitado após inclusão no repertório"
+print("PASSOU: player habilitado depois de adicionar música da Biblioteca.")
+PY
+adb exec-out run-as "$PKG" cat files/stage_setlists.json > "$TMP/repertorio-importado.json"
+python3 - "$TMP/repertorio-importado.json" "$STAGE_SONG_ID" <<'PY'
+import json,sys
+rows=json.load(open(sys.argv[1],encoding="utf-8"))["setlists"]
+assert len(rows)==1 and rows[0]["songs"]==[sys.argv[2]],rows
+print("PASSOU: ID único da Biblioteca salvo no repertório sem duplicar PCM.")
+PY
+click_text "Ativar Modo Palco"
+visible "Sair do Modo Palco · Ensaio"
+click_text "Sair do Modo Palco · Ensaio"
+visible "Ativar Modo Palco"
+adb shell am force-stop "$PKG"
+echo 'PASSOU: Modo Palco e Ensaio abre, salva repertório offline e troca de modo.'
