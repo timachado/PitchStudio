@@ -254,6 +254,50 @@ s=v['setlists'][0]
 assert s['title']=='RepertorioQA' and s['songs']==[]
 print('PASSOU: repertório offline salvo sem copiar áudio.')
 PY
+# Teste E2E: adicionar faixa salva, conferir seleção automática, habilitação
+# do player e persistência do ID único (sem duplicar o áudio original).
+STAGE_SONG_ID="135e4567-e89b-12d3-a456-426614174143"
+python3 - "$TMP" <<'PY'
+from pathlib import Path
+from array import array
+import json,sys,math,time
+out=Path(sys.argv[1]); rate=44100; frames=rate*2
+pcm=array("f",(0.08*math.sin(2*math.pi*220*i/rate)
+                for i in range(frames) for channel in range(2)))
+with (out/"stage-song.f32").open("wb") as f: pcm.tofile(f)
+meta={"schema":1,"title":"Teste Palco QA","updatedAt":int(time.time()*1000),
+      "sampleRate":rate,"channels":2,"frames":frames,"peak":0.08,
+      "waveform":[0.08]*80,"semitones":0,"cents":0,"speed":1.0,
+      "quality":"ALTA","position":0.0}
+(out/"stage-song.json").write_text(json.dumps(meta),encoding="utf-8")
+PY
+adb push "$TMP/stage-song.f32" /data/local/tmp/stage-song.f32 >/dev/null
+adb push "$TMP/stage-song.json" /data/local/tmp/stage-song.json >/dev/null
+adb shell run-as "$PKG" mkdir -p "files/saved_audio_projects/$STAGE_SONG_ID"
+adb shell run-as "$PKG" cp /data/local/tmp/stage-song.f32 "files/saved_audio_projects/$STAGE_SONG_ID/original.f32"
+adb shell run-as "$PKG" cp /data/local/tmp/stage-song.json "files/saved_audio_projects/$STAGE_SONG_ID/project.json"
+click_text "Adicionar música"
+visible "Teste Palco QA"
+click_text "Teste Palco QA"
+visible "RepertorioQA · 1 músicas"
+visible "Música adicionada e selecionada: Teste Palco QA"
+refresh
+python3 - "$UI" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+buttons=[e for e in root.iter("node")
+         if e.get("text","").strip() in ("▶ Reproduzir","Ⅱ Pausar")]
+assert len(buttons)==1 and buttons[0].get("enabled")=="true", \
+    "QA Stage: player não habilitado após inclusão no repertório"
+print("PASSOU: player habilitado depois de adicionar música da Biblioteca.")
+PY
+adb exec-out run-as "$PKG" cat files/stage_setlists.json > "$TMP/repertorio-importado.json"
+python3 - "$TMP/repertorio-importado.json" "$STAGE_SONG_ID" <<'PY'
+import json,sys
+rows=json.load(open(sys.argv[1],encoding="utf-8"))["setlists"]
+assert len(rows)==1 and rows[0]["songs"]==[sys.argv[2]],rows
+print("PASSOU: ID único da Biblioteca salvo no repertório sem duplicar PCM.")
+PY
 click_text "Ativar Modo Palco"
 visible "Sair do Modo Palco · Ensaio"
 click_text "Sair do Modo Palco · Ensaio"
